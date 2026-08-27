@@ -1,0 +1,28 @@
+# ===== 密钥 / 本地私密（绝不入库）=====
+备忘key.txt
+*.local
+.env
+.env.*
+deploy.config.json
+cf-tokens.*
+
+# ===== 依赖 / 构建产物 =====
+node_modules/
+.wrangler/
+.worker/
+.miniflare/
+cf-pages-deploy/
+coverage/
+
+# ===== OS / 编辑器 =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ===== WorkBuddy 内部 =====
+.workbuddy/
+
+# ===== 临时 / 调试 =====
+_test_parse.js
+*.log
