@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大模型 Key 可用性测试台</title>
+<style>
+  :root, body.dark {
+    --bg:#0f1115; --panel:#171a21; --panel2:#1f242d; --text:#e6e6e6;
+    --muted:#9aa0aa; --border:#2a2f3a; --ok:#3fb950; --bad:#f85149;
+    --warn:#d29922; --accent:#58a6ff; --chip:#222833;
+  }
+  body.light {
+    --bg:#ffffff; --panel:#f6f8fa; --panel2:#eef1f4; --text:#1f2328;
+    --muted:#656d76; --border:#d0d7de; --ok:#1a7f37; --bad:#cf222e;
+    --warn:#9a6700; --accent:#0969da; --chip:#e7ebef;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px; line-height:1.5;
+  }
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 20px; border-bottom:1px solid var(--border); background:var(--panel);
+    position:sticky; top:0; z-index:10;
+  }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  .wrap { max-width:1100px; margin:0 auto; padding:20px; }
+  textarea {
+    width:100%; min-height:160px; background:var(--panel2); color:var(--text);
+    border:1px solid var(--border); border-radius:8px; padding:12px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; resize:vertical;
+  }
+  .toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:14px 0; }
+  .proxyToggle { display:inline-flex; align-items:center; gap:5px; font-size:13px; color:var(--text2); cursor:pointer; user-select:none; }
+  .proxyToggle input { accent-color:var(--accent); }
+  .proxyState { font-size:12px; }
+  .proxyState.ok { color:#3fb950; }
+  .proxyState.bad { color:#f85149; }
+  /* CORS 方案面板（紧凑 + 可折叠） */
+  .corsPanel { margin:14px 0 4px; border:1px solid var(--border); border-radius:10px; background:var(--panel); overflow:hidden; }
+  .corsHead { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; cursor:pointer; user-select:none; }
+  .corsHead:hover { background:var(--panel2); }
+  .corsTitle { font-weight:600; font-size:13px; display:flex; align-items:center; gap:8px; }
+  .corsCur { font-size:12px; color:var(--muted); font-weight:400; }
+  .corsChevron { font-size:12px; color:var(--muted); transition:transform .18s; }
+  .corsPanel.collapsed .corsChevron { transform:rotate(-90deg); }
+  .corsBody { padding:0 12px 12px; }
+  .corsPanel.collapsed .corsBody { display:none; }
+  .corsRadios { display:flex; flex-wrap:wrap; gap:6px 16px; }
+  .corsRadios label, .corsRadios2 label { cursor:pointer; user-select:none; font-size:12px; }
+  .corsRadios input, .corsRadios2 input { accent-color:var(--accent); margin-right:4px; }
+  .corsDetail { margin-top:8px; }
+  .corsCard { background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px; }
+  .corsSub { font-size:12px; margin-bottom:6px; }
+  .corsSub a, .corsHint a { color:var(--accent); }
+  .corsStep { margin:4px 0 4px 18px; font-size:12px; }
+  .corsStep li { margin:3px 0; }
+  .corsStep a { color:var(--accent); }
+  .corsCode { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px; font-family:ui-monospace,monospace; font-size:11px; white-space:pre-wrap; margin:5px 0; color:var(--text); }
+  .corsField { font-size:12px; margin:6px 0; }
+  .corsField input { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 7px; font-size:11px; font-family:ui-monospace,monospace; }
+  .corsRadios2 { display:flex; flex-wrap:wrap; gap:12px; margin:6px 0; }
+  .corsHint { font-size:11px; color:var(--muted); margin-top:6px; }
+  .risk { font-size:11px; border-radius:6px; padding:7px 9px; margin-top:6px; line-height:1.6; }
+  .risk.warn { background:rgba(210,153,34,.12); border:1px solid var(--warn); color:var(--warn); }
+  .risk.danger { background:rgba(248,81,73,.12); border:1px solid var(--bad); color:var(--bad); font-weight:600; }
+  button {
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:7px; padding:7px 13px; cursor:pointer; font-size:13px; transition:.15s;
+  }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.primary:hover { filter:brightness(1.08); }
+  table { width:100%; border-collapse:collapse; margin-top:6px; background:var(--panel); border-radius:8px; overflow:hidden; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  th { background:var(--panel2); color:var(--muted); font-weight:600; font-size:12px; }
+  td input {
+    width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:6px 8px; font-size:12px; font-family:ui-monospace,monospace;
+  }
+  .tag { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; border:1px solid var(--border); }
+  .tag.openai { color:var(--accent); border-color:var(--accent); }
+  .tag.anthropic { color:#d29922; border-color:#d29922; }
+  .tag.unknown { color:var(--muted); }
+  .tag.ok { color:var(--ok); border-color:var(--ok); }
+  .tag.bad { color:var(--bad); border-color:var(--bad); }
+  .tag.warn { color:var(--warn); border-color:var(--warn); }
+  #entriesTable { margin-top:14px; }
+  .cards { margin-top:18px; display:grid; gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; }
+  .card h3 { margin:0 0 6px; font-size:14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .card .msg { margin:4px 0; }
+  .meta { color:var(--muted); font-size:12px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip {
+    background:var(--chip); border:1px solid var(--border); border-radius:16px;
+    padding:3px 10px; font-size:12px; cursor:pointer; font-family:ui-monospace,monospace;
+  }
+  .chip:hover { border-color:var(--accent); }
+  .chip .st { margin-left:6px; font-size:11px; }
+  .empty { color:var(--muted); text-align:center; padding:30px; }
+  /* freetoken 免费探测结果 */
+  .freeProbe { margin-top:8px; border-top:1px dashed var(--border); padding-top:8px; }
+  .fpTitle { font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .fpList { display:flex; flex-wrap:wrap; gap:5px; }
+  .fptag { font-size:11px; padding:2px 7px; border-radius:6px; border:1px solid var(--border); font-family:ui-monospace,monospace; }
+  .fptag.ok { color:var(--ok); border-color:var(--ok); }
+  .fptag.bad { color:var(--muted); opacity:.55; text-decoration:line-through; }
+  /* log panel */
+  .logPanel { margin-top:22px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .logHead { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; background:var(--panel2); border-bottom:1px solid var(--border); font-size:13px; font-weight:600; }
+  .logBtns button { padding:4px 10px; font-size:12px; }
+  .logBox { max-height:280px; overflow:auto; padding:10px 12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; line-height:1.7; background:var(--bg); color:var(--text2); }
+  .logBox .empty { padding:18px; }
+  .logline { white-space:pre-wrap; word-break:break-all; }
+  .log-ok { color:#3fb950; }
+  .log-err { color:#f85149; }
+  .log-warn { color:#d29922; }
+  .log-info { color:var(--text); }
+  /* modal */
+  .overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,.55); display:none;
+    align-items:center; justify-content:center; z-index:50; padding:20px;
+  }
+  .overlay.show { display:flex; }
+  .modal { background:var(--panel); border:1px solid var(--border); border-radius:12px; max-width:900px; width:100%; max-height:85vh; overflow:auto; padding:18px; }
+  .modal h2 { margin:0 0 12px; font-size:16px; }
+  .modal table { font-size:12px; }
+  .modal table th, .modal table td { padding:7px 9px; }
+  /* 持续对话面板 */
+  .chat-modal { max-width:780px; display:flex; flex-direction:column; max-height:90vh; }
+  .chat-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; gap:10px; }
+  .chat-head .meta { font-size:12px; color:var(--muted); margin-top:3px; word-break:break-all; }
+  .chat-body { flex:1; overflow:auto; min-height:220px; max-height:54vh; padding:8px; background:var(--bg); border:1px solid var(--border); border-radius:8px; }
+  .chat-msg { margin:9px 0; display:flex; }
+  .chat-msg.user { justify-content:flex-end; }
+  .chat-msg.assistant { justify-content:flex-start; }
+  .chat-bubble { max-width:82%; padding:9px 13px; border-radius:13px; white-space:pre-wrap; word-break:break-word; font-size:13px; line-height:1.65; }
+  .chat-msg.user .chat-bubble { background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
+  .chat-msg.assistant .chat-bubble { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-bottom-left-radius:4px; }
+  .chat-bubble.thinking { color:var(--muted); font-style:italic; }
+  .chat-input { display:flex; gap:8px; margin-top:10px; align-items:flex-end; }
+  .chat-input #chatModel { width:150px; flex:none; }
+  .chat-input textarea { flex:1; min-height:48px; max-height:140px; }
+  .chatBtn { padding:5px 10px; font-size:12px; background:var(--accent); color:#fff; border-color:var(--accent); }
+  .chatBtn:hover { filter:brightness(1.08); }
+  .export-opts { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
+  .export-opts label { display:flex; gap:5px; align-items:center; color:var(--muted); font-size:13px; }
+  .toast {
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    padding:10px 16px; border-radius:8px; display:none; z-index:60; font-size:13px;
+  }
+  .toast.show { display:block; }
+  .hint { color:var(--muted); font-size:12px; margin-top:6px; }
+  code.k { font-family:ui-monospace,monospace; }
+</style>
+</head>
+<body class="dark">
+<header>
+  <h1>🔑 大模型 Key 可用性测试台</h1>
+  <button id="themeBtn" title="切换明暗">🌙 暗色</button>
+</header>
+
+<div class="wrap">
+  <textarea id="input" placeholder="在此粘贴任意组合的 接口地址 / API Key / 模型ID（支持多组，空行分隔）。
+例如：
+https://api.openai.com/v1
+sk-xxxxxxx
+gpt-4o
+
+https://api.anthropic.com
+sk-ant-xxxx
+claude-3-5-sonnet-20241022
+
+https://my-proxy.com/v1
+sk-aaa
+sk-bbb
+sk-ccc"></textarea>
+  <div class="toolbar">
+    <button class="primary" id="parseBtn">解析</button>
+    <button id="selAll">全选</button>
+    <button id="selNone">反选</button>
+    <button class="primary" id="testAll">测试全部</button>
+    <button id="testSel">测试选中</button>
+    <button id="testList">测试模型列表</button>
+    <button id="clearBtn">清空</button>
+    <button id="exportBtn">导出 ▾</button>
+  </div>
+  <div class="hint" id="parseHint">粘贴后自动解析；支持 sk-/sk-ant-/AIza/tf_ 等格式密钥。表格内字段可手动修改后测试。默认全部勾选。</div>
+
+  <div class="corsPanel collapsed" id="corsPanel">
+    <div class="corsHead" id="corsHead" title="点击展开/折叠">
+      <span class="corsTitle">🌐 CORS 解决方案（四选一，单选）<span class="corsCur" id="corsCur"></span></span>
+      <span class="corsChevron" id="corsChevron">▾</span>
+    </div>
+    <div class="corsBody" id="corsBody">
+      <div class="corsRadios">
+        <label><input type="radio" name="corsMethod" value="A"> A. 浏览器扩展解锁 CORS</label>
+        <label><input type="radio" name="corsMethod" value="B"> B. 带参数启动浏览器</label>
+        <label><input type="radio" name="corsMethod" value="C"> C. 公共 CORS 代理</label>
+        <label><input type="radio" name="corsMethod" value="D"> D. 运行 proxy.js（本地 / 云端）</label>
+      </div>
+      <div class="corsDetail" id="corsDetail"></div>
+    </div>
+  </div>
+
+  <div id="entriesTable"></div>
+  <div class="cards" id="results"><div class="empty">尚无测试结果</div></div>
+
+  <div class="logPanel">
+    <div class="logHead">
+      <span>运行日志</span>
+      <span class="logBtns">
+        <button id="logClear">清空</button>
+        <button id="logCopy">复制日志</button>
+      </span>
+    </div>
+    <div class="logBox" id="logBox"><div class="empty">暂无日志（解析或测试时自动记录）</div></div>
+  </div>
+</div>
+
+<!-- Export modal -->
+<div class="overlay" id="exportOverlay">
+  <div class="modal">
+    <h2>导出可用模型与 Key</h2>
+    <div class="export-opts">
+      <label>范围：
+        <select id="expScope">
+          <option value="ok">仅可用</option>
+          <option value="all">全部</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="expFullKey"> 显示完整 Key</label>
+      <label><input type="checkbox" id="expModels" checked> 含模型列表</label>
+    </div>
+    <div id="exportPreview"></div>
+    <div class="toolbar" style="margin-top:14px;">
+      <button id="copyMd">复制 Markdown</button>
+      <button id="dlMd">下载 .md</button>
+      <button id="dlJson">下载 .json</button>
+      <button id="dlTxt">下载 .txt</button>
+      <button id="closeExport">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 持续对话面板 -->
+<div class="overlay" id="chatOverlay">
+  <div class="modal chat-modal">
+    <div class="chat-head">
+      <div>
+        <strong>🌐 网页持续对话</strong>
+        <div class="meta" id="chatMeta"></div>
+      </div>
+      <button id="chatClose">关闭</button>
+    </div>
+    <div class="chat-body" id="chatBody"></div>
+    <div class="chat-input">
+      <input id="chatModel" placeholder="模型ID">
+      <textarea id="chatText" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+      <button class="primary" id="chatSend">发送</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+let entries = [];
+const results = {}; // id -> {status, vendor, models, message, latency, modelStatus:{}}
+
+/* ---------- 工具 ---------- */
+function $(id){ return document.getElementById(id); }
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+function maskKey(k){ if(!k) return ''; return k.length>10 ? k.slice(0,6)+'••••'+k.slice(-4) : '••••'+k; }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---------- 运行日志 ---------- */
+const logLines=[];
+function log(msg, type){
+  const t=new Date().toLocaleTimeString('zh-CN',{hour12:false});
+  const line='['+t+'] '+(type?'['+type+'] ':'')+msg;
+  logLines.push(line);
+  const box=$('logBox');
+  if(box){
+    const ph=box.querySelector('.empty'); if(ph) ph.remove();
+    const p=document.createElement('div'); p.className='logline'+(type?' log-'+type:''); p.textContent=line; box.appendChild(p); box.scrollTop=box.scrollHeight;
+  }
+}
+
+function fetchWithTimeout(url, opts, ms=15000){
+  const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms);
+  return fetch(url, Object.assign({signal:c.signal}, opts)).finally(()=>clearTimeout(t));
+}
+// 网络兼容自动降级：直连失败且本机 proxy.js 在线时，自动改走 D 代理（等价 Chatbox「改善网络兼容性」）
+// 健康检查结果缓存 30s，避免每次失败都重测
+let __proxyHealth={ok:false, ts:0};
+async function compatFetch(url, opts, ms=15000){
+  try{
+    return await fetchWithTimeout(url, opts, ms);
+  }catch(e){
+    // 已走代理（C/D）或本就没开网络兼容：不降级，直接抛出
+    if(corsMethod==='C' || corsMethod==='D') throw e;
+    const now=Date.now();
+    if(now-__proxyHealth.ts > 30000){
+      try{
+        const hr=await fetchWithTimeout((proxyBase||'http://localhost:8787')+'/health',{cache:'no-store'}, 1500);
+        __proxyHealth={ok:hr.ok, ts:now};
+      }catch(e2){ __proxyHealth={ok:false, ts:now}; }
+    }
+    if(__proxyHealth.ok){
+      log('⚡ 网络兼容：直连被浏览器拦截，已自动改走本机 proxy.js 重试', 'warn');
+      const proxied=(proxyBase||'http://localhost:8787')+'/?url='+encodeURIComponent(url);
+      return await fetchWithTimeout(proxied, opts, ms);
+    }
+    throw e;
+  }
+}
+
+/* ---------- CORS 解决方案（4 选 1） ---------- */
+let corsMethod=null;                  // 'A' | 'B' | 'C' | 'D' | null
+let proxyDeploy=null;                 // D 子选项：'local' | 'cf' | 'vercel' | 'render'
+let proxyBase='http://localhost:8787';// D 实际代理地址（本地或云端部署地址）
+let publicProxyBase='';               // C 公共代理前缀（到 ?url= 之前）
+const CORS_LABEL={A:'扩展',B:'参数启动',C:'公共代理',D:'本地/云代理'};
+let corsCollapsed=true;             // 默认折叠，节省显示空间
+try{ const c=localStorage.getItem('llmTesterCorsCollapsed'); if(c!==null) corsCollapsed=(c==='1'); }catch(e){}
+function setCorsCollapsed(c){
+  corsCollapsed=c;
+  const p=$('corsPanel'); if(!p) return;
+  p.classList.toggle('collapsed', c);
+  try{ localStorage.setItem('llmTesterCorsCollapsed', c?'1':'0'); }catch(e){}
+}
+function updateCorsCur(){
+  const el=$('corsCur'); if(!el) return;
+  el.textContent = corsMethod ? ('（当前：'+CORS_LABEL[corsMethod]+'）') : '（未选）';
+}
+function corsLabel(){ return CORS_LABEL[corsMethod]||'未选'; }
+function usingProxy(){ return corsMethod==='C' || corsMethod==='D'; }
+function proxyWrap(url){
+  if(corsMethod==='A' || corsMethod==='B') return url;                       // 直连（靠扩展/参数启动放行 CORS）
+  if(corsMethod==='C') return (publicProxyBase||'https://corsproxy.io/?url=')+encodeURIComponent(url);
+  if(corsMethod==='D') return (proxyBase||'http://localhost:8787')+'/?url='+encodeURIComponent(url);
+  return url;
+}
+async function checkProxy(){
+  const st=$('corsStatus'); if(!st) return false;
+  if(corsMethod!=='D'){ st.textContent=''; st.className='proxyState'; return false; }
+  try{
+    const r=await fetch(proxyBase+'/health',{cache:'no-store'});
+    if(r.ok){ st.textContent='代理在线'; st.className='proxyState ok'; return true; }
+  }catch(e){}
+  st.textContent='代理未启动/不可达'; st.className='proxyState bad'; return false;
+}
+
+/* 渲染 CORS 方案详情 */
+function renderCorsDetail(){
+  const box=$('corsDetail');
+  if(!corsMethod){ box.innerHTML='<div class="corsHint">请选择一种方案。A/B 最安全（key 直连目标，不经第三方）；C/D 会把请求经代理转发，详见各自风险提示。<br>💡 提示：Chatbox 网页版的「改善网络兼容性」开关本质就是用代理中继绕过浏览器 CORS——在本工具中对应方案 <b>D 本地 proxy.js</b>（推荐）或 <b>C 公共代理</b>。直连不通时优先切到这两项。</div>'; return; }
+  let h='';
+  if(corsMethod==='A'){
+    h=`<div class="corsCard">
+      <div class="corsSub">说明：安装浏览器扩展放行跨域响应头，页面<b>直接连接目标 API，key 不经过任何第三方</b>。最干净。</div>
+      <ol class="corsStep">
+        <li>在扩展商店安装其一：
+          <a href="https://chrome.google.com/webstore/search/cors%20unblock" target="_blank" rel="noopener">Chrome：CORS Unblock</a> ｜
+          <a href="https://chrome.google.com/webstore/search/allow%20cors%20access%20control" target="_blank" rel="noopener">Allow CORS: Access-Control-Allow-Origin</a> ｜
+          <a href="https://microsoftedge.microsoft.com/addons/search/cors%20unblock" target="_blank" rel="noopener">Edge 加载项</a>
+        </li>
+        <li>启用扩展，点击图标开启（部分需刷新页面生效）。</li>
+        <li>本页保持「不勾代理」，直接点「测试全部」。</li>
+      </ol>
+      <div class="risk warn">⚠️ 风险：扩展会改写所有网站的跨域响应头。仅在测试期间开启，用完关闭；不要在不信任的扩展里粘贴密钥。</div>
+    </div>`;
+  } else if(corsMethod==='B'){
+    h=`<div class="corsCard">
+      <div class="corsSub">说明：用参数启动一个<b>临时浏览器实例</b>，关闭其同源策略后直接打开本 HTML。key 直连目标，不经第三方。</div>
+      <div class="corsCode"># Windows（路径换成你本机 Chrome）
+chrome.exe --user-data-dir="C:\\temp\\cors-test" --disable-web-security
+
+# macOS
+/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --user-data-dir=/tmp/cors-test --disable-web-security</div>
+      <ol class="corsStep">
+        <li>关闭所有 Chrome 窗口，用上面命令重新启动。</li>
+        <li>在打开的浏览器里拖入本 HTML 文件，然后测试。</li>
+      </ol>
+      <div class="risk warn">⚠️ 风险：该实例关闭了安全策略，整个浏览器临时处于不安全状态。仅用于测试，不要在此实例登录重要账号；测试完正常重启浏览器。</div>
+    </div>`;
+  } else if(corsMethod==='C'){
+    h=`<div class="corsCard">
+      <div class="corsSub">说明：请求经<b>第三方公共代理</b>转发，绕过浏览器跨域。请填入公共代理地址（前缀，到 <code class="k">?url=</code> 之前）。</div>
+      <div class="corsField">公共代理地址：<input id="publicProxyInput" value="${esc(publicProxyBase)}" placeholder="例如 https://corsproxy.io/?url=" style="width:340px;"></div>
+      <div class="risk danger">🚫 强烈不推荐用于真实密钥：你的 key 会经过第三方公共服务器，可能被记录/泄露；公共代理常不稳定、限流、甚至中途注入。仅临时验证用，用完即弃。</div>
+      <div class="corsHint">常用公共代理（稳定性各异，自行甄别）：corsproxy.io、api.allorigins.win/raw?url=、thingproxy.freeboard.io</div>
+    </div>`;
+  } else if(corsMethod==='D'){
+    h=`<div class="corsCard">
+      <div class="corsSub">说明：运行 proxy.js（与 HTML 同目录的 Node 服务）转发请求。<b>本地运行最安全（key 不出本机）</b>；也可部署到云端（key 会经过你部署的平台）。</div>
+      <div class="corsRadios2">
+        <label><input type="radio" name="proxyDeploy" value="local" ${proxyDeploy==='local'?'checked':''}> ① 本地运行（推荐）</label>
+        <label><input type="radio" name="proxyDeploy" value="cf" ${proxyDeploy==='cf'?'checked':''}> ② Cloudflare Workers</label>
+        <label><input type="radio" name="proxyDeploy" value="vercel" ${proxyDeploy==='vercel'?'checked':''}> ③ Vercel / Netlify</label>
+        <label><input type="radio" name="proxyDeploy" value="render" ${proxyDeploy==='render'?'checked':''}> ④ Render / Railway / Fly.io</label>
+      </div>
+      <div id="deployDetail"></div>
+      <div class="proxyState" id="corsStatus"></div>
+    </div>`;
+  }
+  box.innerHTML=h;
+  const pub=$('publicProxyInput'); if(pub) pub.oninput=()=>{ publicProxyBase=pub.value.trim(); };
+  const dp=box.querySelectorAll('input[name=proxyDeploy]'); dp.forEach(r=>r.onchange=()=>{ proxyDeploy=r.value; onDeployChange(); });
+  if(corsMethod==='D' && proxyDeploy) renderDeployDetail();
+  updateCorsCur();
+}
+function onDeployChange(){
+  if(proxyDeploy==='local'){ proxyBase='http://localhost:8787'; }
+  else if(proxyDeploy==='cf'){ proxyBase='https://KeyCheck.hhxx.eu.org/proxy'; }
+  renderCorsDetail();
+  checkProxy();
+}
+function renderDeployDetail(){
+  const box=$('deployDetail'); if(!box) return;
+  let h='';
+  if(proxyDeploy==='local'){
+    h=`<ol class="corsStep">
+        <li>安装 Node.js（<a href="https://nodejs.org" target="_blank" rel="noopener">nodejs.org</a>，LTS 即可）。</li>
+        <li>在本 HTML 同目录打开命令行，运行：<code class="k">node proxy.js</code></li>
+        <li>看到「LLM 测试代理已启动: http://localhost:8787」后保持窗口开着。</li>
+        <li>本面板选 D + 本地，右侧状态显示「代理在线」即可测试。</li>
+      </ol>
+      <div class="corsHint">proxy.js 下载/安装包指引稍后补充（下载地址待完善）。</div>
+      <div class="risk warn">⚠️ 需保持命令行窗口运行；key 仅在本机转发，最安全。</div>`;
+  } else if(proxyDeploy==='cf'){
+    h=`<div class="corsSub">把代理改成 Cloudflare Worker 部署：免费、边缘节点、自带 HTTPS。本仓库 <code class="k">worker/worker.js</code> 已按「同域 /proxy 反代 + / 返回页面」写好，部署后地址即 <code class="k">https://KeyCheck.hhxx.eu.org/proxy</code>。</div>
+      <div class="corsField">你的部署地址：<input class="deployUrl" value="${esc(proxyBase)}" placeholder="例如 https://KeyCheck.hhxx.eu.org/proxy" style="width:340px;"></div>
+      <ol class="corsStep"><li>仓库根目录运行 <code class="k">node deploy.mjs</code>（会读取 备忘key.txt 里的 Cloudflare 全局密钥，自动建 DNS + 部署 Worker）。</li><li>部署后上方已自动填好云端地址，状态显示「代理在线」即可测试。</li></ol>
+      <div class="risk danger">🚫 风险：key 会经过 Cloudflare 及你的 Worker 服务，平台/服务可见请求与密钥。务必用<b>自己的账号</b>自建，不要把代理地址公开分享；免费层可能冷启动慢。</div>`;
+  } else if(proxyDeploy==='vercel'){
+    h=`<div class="corsSub">部署为 Vercel / Netlify 的 Serverless Function（把 proxy.js 改成函数版）。</div>
+      <div class="corsField">你的部署地址：<input class="deployUrl" value="${esc(proxyBase)}" placeholder="例如 https://llm-proxy.vercel.app" style="width:340px;"></div>
+      <ol class="corsStep"><li><a href="https://vercel.com/" target="_blank" rel="noopener">Vercel</a> 或 <a href="https://www.netlify.com/" target="_blank" rel="noopener">Netlify</a> 新建项目，部署代理函数。</li><li>填入部署地址。</li></ol>
+      <div class="risk danger">🚫 风险：key 经 Vercel/Netlify 平台及你的服务，平台可见。自建、勿公开地址。</div>`;
+  } else if(proxyDeploy==='render'){
+    h=`<div class="corsSub">部署为 Render / Railway / Fly.io 的完整 Node 服务（最接近现在的 proxy.js）。</div>
+      <div class="corsField">你的部署地址：<input class="deployUrl" value="${esc(proxyBase)}" placeholder="例如 https://llm-proxy.onrender.com" style="width:340px;"></div>
+      <ol class="corsStep"><li><a href="https://render.com/" target="_blank" rel="noopener">Render</a> / <a href="https://railway.app/" target="_blank" rel="noopener">Railway</a> / <a href="https://fly.io/" target="_blank" rel="noopener">Fly.io</a> 新建服务，上传 proxy.js 并部署。</li><li>填入部署地址。</li></ol>
+      <div class="risk danger">🚫 风险：key 经对应平台及你的服务，平台可见。自建、勿公开地址；免费层可能休眠。</div>`;
+  }
+  box.innerHTML=h;
+  const u=box.querySelector('.deployUrl'); if(u) u.oninput=()=>{ proxyBase=u.value.trim(); checkProxy(); };
+}
+
+/* ---------- URL 归一 ---------- */
+// 支持用户粘贴「完整端点 URL」（含 /chat/completions 或 /messages），自动归一到 /v1 根
+function deriveEndpoints(base){
+  base=(base||'').replace(/\/+$/,'');
+  // 已是完整 chat 端点：.../v1/chat/completions
+  let m=base.match(/^(.*\/v1)\/chat\/completions$/i);
+  if(m) return { root:m[1], models:m[1]+'/models', chat:m[1]+'/chat/completions', anthropic:false };
+  // 已是完整 messages 端点（anthropic 原生）
+  m=base.match(/^(.*\/v1)\/messages$/i);
+  if(m) return { root:m[1], models:m[1]+'/models', chat:m[1]+'/messages', anthropic:true };
+  // 普通 base（可能不含 /v1）
+  const root=base.endsWith('/v1')?base:(base+'/v1');
+  return { root, models:root+'/models', chat:root+'/chat/completions', anthropic:false };
+}
+function modelUrls(base){
+  const d=deriveEndpoints(base);
+  return [d.models, d.root.replace(/\/v1$/,'').replace(/\/$/,'')+'/models'];
+}
+function chatUrl(base, vendor){
+  const d=deriveEndpoints(base);
+  if(d.anthropic) return d.chat;
+  return (vendor==='anthropic') ? d.root+'/messages' : d.root+'/chat/completions';
+}
+
+/* ---------- 解析 ---------- */
+function parseInput(text){
+  let blocks = text.split(/\n\s*\n/).map(b=>b.trim()).filter(Boolean);
+  if(blocks.length===0 && text.trim()) blocks=[text.trim()];
+  const out=[]; let currentBase=null, idc=0;
+  const modelPrefix=/^(gpt|o[0-9]|claude|gemini|agnes|text|deepseek|qwen|moonshot|kimi|glm|yi|ling|mimo|mistral|llama|command|minimax|minimaxai|sensenova)/i;
+  for(const block of blocks){
+    const urls=[...block.matchAll(/https?:\/\/[^\s"'<>]+/g)].map(m=>m[0].replace(/\/+$/,''));
+    const localBase=urls[0]||null;
+    if(localBase) currentBase=localBase;
+    const base=localBase||currentBase;
+    const urlSet=new Set(urls);
+    // 关键字符集放宽到包含 . + / =，避免 JWT / base64 型长 key 被按特殊字符拆成多段
+    const keyRe=/(?:sk-ant-[A-Za-z0-9_\-.\/+=]{8,}|sk-[A-Za-z0-9_\-.\/+=]{8,}|AIza[A-Za-z0-9_\-.\/+=]{20,}|tf[_\-][A-Za-z0-9_\-.\/+=]{24,}|[A-Za-z0-9_\-.\/+=]{24,})/g;
+    const modelPrefixBlock=/^(gpt|o[0-9]|claude|gemini|agnes|text|deepseek|qwen|moonshot|kimi|glm|yi|ling|mimo|mistral|llama|command|minimax|minimaxai|sensenova)/i;
+    const keys=[...new Set([...block.matchAll(keyRe)].map(m=>m[0])
+      .filter(k=>!urlSet.has(k) && !urls.some(u=>u.includes(k)))
+      .filter(k=>!modelPrefixBlock.test(k)))];
+    // 去掉 URL 后再扫模型，避免把接口地址里的 "sensenova.cn/v1" 误当成模型 ID
+    const blockNoUrl=block.replace(/https?:\/\/[^\s"'<>]+/g,' ');
+    let models=[...blockNoUrl.matchAll(new RegExp('('+modelPrefix.source.replace(/^\^/,'')+'[A-Za-z0-9.\\-_/:]*)','gi'))].map(m=>m[1]);
+    for(const m of blockNoUrl.matchAll(/(?:model|模型)\s*[:=]\s*([^\s"'<>]+)/gi)) models.push(m[1].replace(/[.,;:!?)\]}'"]+$/,''));
+    models=[...new Set(models.map(s=>s.trim()).filter(Boolean))];
+    if(keys.length===0) continue;
+    keys.forEach((k,idx)=>{
+      let model=null;
+      if(models.length===1) model=models[0];
+      else if(models.length>1) model=models[Math.min(idx,models.length-1)];
+      out.push({id:'e'+(idc++), base:base||'', key:k, model, selected:true, raw:block});
+    });
+  }
+  return out;
+}
+
+/* ---------- 认证头（按厂商/host 适配） ---------- */
+function authHeaders(base, key, vendor){
+  const h = vendor==='anthropic'
+    ? {'x-api-key':key,'anthropic-version':'2023-06-01','Content-Type':'application/json'}
+    : {'Authorization':'Bearer '+key,'Content-Type':'application/json'};
+  // 微信智能对话 OpenAI 兼容接口用 X-OPENAI-TOKEN（不用 Bearer），缺失会返回 412 前置条件失败
+  try{
+    const host=new URL(base).hostname.toLowerCase();
+    if(host.endsWith('weixin.qq.com')) h['X-OPENAI-TOKEN']=key;
+  }catch(e){}
+  return h;
+}
+
+/* ---------- 厂商探测 + 模型列表 ---------- */
+async function fetchModels(base, key){
+  const urls=modelUrls(base);
+  let lastStatus=null;
+  for(const url of urls){
+    try{
+      const r=await compatFetch(proxyWrap(url),{
+        method:'GET',
+        headers:authHeaders(base, key, 'openai')
+      });
+      lastStatus=r.status;
+      if(r.ok){
+        const j=await r.json().catch(()=>null);
+        if(j && Array.isArray(j.data) && j.data.length){
+          let vendor='openai';
+          if(j.object==='list') vendor='openai';
+          else if(j.data[0] && j.data[0].type==='model') vendor='anthropic';
+          const models=j.data.map(m=>m.id||m.name).filter(Boolean);
+          return {ok:true, vendor, models, status:r.status};
+        }
+      }
+    }catch(e){ lastStatus=null; }
+  }
+  return {ok:false, statusCode:lastStatus, error:lastStatus?('status-'+lastStatus):'network'};
+}
+
+/* ---------- 对话测试（自动尝试多种鉴权，兼容未知 key 类型） ---------- */
+async function chatTest(base, key, vendor, model){
+  const url=chatUrl(base, vendor);
+  const isWeixin=(()=>{ try{ return new URL(base).hostname.toLowerCase().endsWith('weixin.qq.com'); }catch(e){ return false; } })();
+  // 微信等国产 OpenAI 兼容网关要求补 stream/temperature/user 三字段，否则 412
+  const body = vendor==='anthropic'
+    ? {model, max_tokens:64, messages:[{role:'user',content:'你好'}]}
+    : isWeixin
+      ? {model, messages:[{role:'user',content:'你好'}], max_tokens:64, stream:false, temperature:0.7, user:'llm-tester'}
+      : {model, messages:[{role:'user',content:'你好'}], max_tokens:64};
+  const bodyStr=JSON.stringify(body);
+
+  // 构造鉴权方案：微信域名依次试 X-OPENAI-TOKEN → X-APPID → Bearer；其余按厂商常规
+  const variants=[];
+  if(isWeixin){
+    variants.push({name:'X-OPENAI-TOKEN', h:{'X-OPENAI-TOKEN':key,'Content-Type':'application/json'}});
+    variants.push({name:'X-APPID', h:{'X-APPID':key,'Content-Type':'application/json'}});
+    variants.push({name:'X-Api-Key', h:{'X-Api-Key':key,'Content-Type':'application/json'}});
+    variants.push({name:'Api-Key', h:{'Api-Key':key,'Content-Type':'application/json'}});
+    variants.push({name:'X-Org-Id+Bearer', h:{'Authorization':'Bearer '+key,'X-Org-Id':key,'Content-Type':'application/json'}});
+    variants.push({name:'X-User-Id+Bearer', h:{'Authorization':'Bearer '+key,'X-User-Id':key,'Content-Type':'application/json'}});
+    variants.push({name:'token-prefix', h:{'Authorization':'token '+key,'Content-Type':'application/json'}});
+    variants.push({name:'?key=query', h:{'Authorization':'Bearer '+key,'Content-Type':'application/json'}, urlSuffix:'?key='+encodeURIComponent(key)});
+    variants.push({name:'?token=query', h:{'Authorization':'Bearer '+key,'Content-Type':'application/json'}, urlSuffix:'?token='+encodeURIComponent(key)});
+  }
+  variants.push({name:'Bearer', h:{'Authorization':'Bearer '+key,'Content-Type':'application/json'}});
+  if(vendor==='anthropic') variants.push({name:'x-api-key', h:{'x-api-key':key,'anthropic-version':'2023-06-01','Content-Type':'application/json'}});
+
+  const tried=[];
+  for(const v of variants){
+    try{
+      const vUrl = v.urlSuffix ? (url+v.urlSuffix) : url;
+      const r=await compatFetch(proxyWrap(vUrl),{method:'POST',headers:v.h,body:bodyStr});
+      if(r.ok){
+        const j=await r.json().catch(()=>null);
+        let text='';
+        if(vendor==='anthropic') text=(j.content&&j.content[0]&&j.content[0].text)||'';
+        else text=(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
+        return {ok:true, text:text.slice(0,100), auth:v.name, tried};
+      }
+      tried.push({name:v.name, status:r.status, error:humanStatus(r.status)});
+    }catch(e){ tried.push({name:v.name, status:0, error:'网络/跨域错误'}); }
+  }
+  const detail=tried.map(t=>`${t.name}→${t.error}`).join('；');
+  return {ok:false, error:detail, tried};
+}
+
+function humanStatus(code){
+  switch(code){
+    case 401: return '密钥无效或已过期（认证失败）';
+    case 403: return '无权限访问该资源';
+    case 404: return '接口路径不对，检查地址是否含 /v1';
+    case 429: return '请求太频繁，被限流，稍后重试';
+    default:  return '连接失败（HTTP '+code+'）';
+  }
+}
+function describeError(res){
+  if(res.error==='network'){
+    if(corsMethod==='A'||corsMethod==='B') return '跨域被拦或服务不可达（浏览器 CORS 限制）。对应 Chatbox「改善网络兼容性」开关：请展开下方 CORS 方案，选择 D 运行 proxy.js（推荐）或 C 公共代理后再测。';
+    if(corsMethod==='C') return '公共 CORS 代理连接失败（请确认公共代理地址正确且服务可用）。';
+    return '本地/云端代理连接失败（请确认 proxy 服务正在运行，且本页是在你本机浏览器直接打开，而非 WorkBuddy 预览）。';
+  }
+  if(res.statusCode===401) return '密钥无效或已过期（认证失败）';
+  if(res.statusCode===403) return '无权限访问该资源';
+  if(res.statusCode===404) return '接口路径不对，检查地址是否含 /v1';
+  if(res.statusCode===429) return '请求太频繁，被限流，稍后重试';
+  return '无法识别厂商或连接失败';
+}
+function latencyWord(ms){ return ms<800?'快':(ms<2500?'正常':'偏慢'); }
+
+/* ---------- 渲染条目表 ---------- */
+function renderTable(){
+  const box=$('entriesTable');
+  if(entries.length===0){ box.innerHTML=''; return; }
+  let h='<table><thead><tr><th style="width:34px;">选</th><th>接口地址</th><th>API Key</th><th>模型ID</th><th style="width:64px;">对话</th><th style="width:90px;">厂商</th></tr></thead><tbody>';
+  let dl='';
+  for(const e of entries){
+    const vTag = results[e.id] ? results[e.id].vendor : '';
+    const vt = vTag ? `<span class="tag ${vTag}">${vTag}</span>` : '<span class="tag unknown">未测</span>';
+    const dlId='dl-'+e.id;
+    const opts=(results[e.id]&&results[e.id].models)?results[e.id].models.map(m=>`<option value="${esc(m)}"></option>`).join(''):'';
+    h+=`<tr>
+      <td><input type="checkbox" data-id="${e.id}" class="sel" ${e.selected?'checked':''}></td>
+      <td><input data-f="base" data-id="${e.id}" value="${esc(e.base)}"></td>
+      <td><input data-f="key" data-id="${e.id}" value="${esc(e.key)}"></td>
+      <td><input data-f="model" data-id="${e.id}" list="${dlId}" value="${esc(e.model||'')}" placeholder="可选｜可下拉选已拉取模型"></td>
+      <td><button class="chatBtn" data-id="${e.id}">对话</button></td>
+      <td>${vt}</td>
+    </tr>`;
+    dl+=`<datalist id="${dlId}">${opts}</datalist>`;
+  }
+  h+='</tbody></table>'+dl;
+  box.innerHTML=h;
+  box.querySelectorAll('input.sel').forEach(cb=>cb.onchange=ev=>{
+    const e=entries.find(x=>x.id===ev.target.dataset.id); if(e) e.selected=ev.target.checked;
+  });
+  box.querySelectorAll('input[data-f]').forEach(inp=>inp.oninput=ev=>{
+    const e=entries.find(x=>x.id===ev.target.dataset.id); if(e) e[ev.target.dataset.f]=ev.target.value.trim();
+  });
+  box.querySelectorAll('.chatBtn').forEach(b=>b.onclick=()=>openChat(b.dataset.id));
+}
+// 测试成功后把拉到的模型列表回填到该条目行下拉框（<datalist>）
+function populateModelDatalist(id, models){
+  const dl=document.getElementById('dl-'+id); if(!dl) return;
+  dl.innerHTML=models.map(m=>`<option value="${esc(m)}"></option>`).join('');
+}
+
+/* ---------- freetokenfaucet 自动免费探测（仅该站点，其他跳过） ---------- */
+function isFreetoken(base){
+  try{ return new URL(base).hostname.toLowerCase().includes('freetokenfaucet.com'); }catch(e){ return false; }
+}
+// 名字像免费/试用档的模型（用于优先试探，避免把整个模型表打一遍）
+function looksFree(m){
+  return /free|lite|mini|flash|haiku|nano|instant|tiny|trial|zero|gratis|no[\-_]?cost|0\.?0*$|免|试/i.test(m||'');
+}
+function freeProbeHtml(r){
+  if(!r || !Array.isArray(r.freeProbe) || !r.freeProbe.length) return '';
+  const ok=r.freeProbe.filter(x=>x.ok);
+  const items=r.freeProbe.map(x=>`<span class="fptag ${x.ok?'ok':'bad'}" title="${esc(x.ok?'可用':('失败 '+(x.status||0)+' '+(x.error||'')))}">${esc(x.model)}${x.ok?' ✓':''}${x.remaining?(' 余'+esc(x.remaining)):''}</span>`).join('');
+  return `<div class="freeProbe"><div class="fpTitle">🔍 今日免费模型探测（${ok.length}/${r.freeProbe.length} 可用）</div><div class="fpList">${items}</div></div>`;
+}
+async function runFreetokenProbe(id, knownModels){
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  const today=new Date().toISOString().slice(0,10);
+  const cacheKey='ftFree_'+(e.base||'ft').replace(/[^a-z0-9]/gi,'')+'_'+today;
+  let cached=null;
+  try{ cached=JSON.parse(localStorage.getItem(cacheKey)||'null'); }catch(e2){}
+  if(Array.isArray(cached)){
+    results[id].freeProbe=cached;
+    const okL=cached.filter(x=>x.ok).map(x=>x.model);
+    results[id].message+=' ｜ 今日免费探测：'+(okL.length?okL.join('、'):'暂无可用')+'（读缓存，共 '+cached.length+' 个）';
+    renderResults(); log('🔍 读取今日免费探测缓存（'+cached.length+' 个）', 'info');
+    return;
+  }
+  log('🔍 freetoken 免费探测：开始 1→2→3', 'info');
+  const candidates=new Set();
+  // 步骤1：抓官网首页，提取「免费模型」紧邻对 + 「支持的模型」全量
+  let homepageFree=[];   // 明确标"免费"的优先档
+  let homepageAll=[];    // 官网列出的全量模型
+  try{
+    const r=await compatFetch(proxyWrap('https://freetokenfaucet.com/'), {method:'GET', headers:{'Accept':'text/html'}}, 12000);
+    if(r.ok){
+      const html=await r.text();
+      const text=html.replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<style[\s\S]*?<\/style>/gi,'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
+      // 匹配模型 ID：字母开头，可含 数字/./- 段；如 gpt-5.6-luna / mimo-v2.5 / kimi-k2.5
+      const idRe=/\b([a-z][a-z0-9]*(?:[-.][a-z0-9]+){1,4})\b/gi;
+      // 1a) 紧邻"免费"标签的：<model> 免费 或 免费 <model>，距离 15 字内
+      const pairRe=/([a-z][a-z0-9]*(?:[-.][a-z0-9]+){1,4})[^\n]{0,15}?免费|免费[^\n]{0,15}?([a-z][a-z0-9]*(?:[-.][a-z0-9]+){1,4})/gi;
+      let m;
+      while((m=pairRe.exec(text))){
+        const id=(m[1]||m[2]||'').toLowerCase();
+        if(id && modelPrefix.test(id)) homepageFree.push(id);
+      }
+      // 1b) 全部匹配 + 厂商白名单过滤
+      while((m=idRe.exec(text))){
+        const id=(m[1]||'').toLowerCase();
+        if(modelPrefix.test(id)) homepageAll.push(id);
+      }
+      homepageFree=[...new Set(homepageFree)];
+      homepageAll=[...new Set(homepageAll)];
+      homepageFree.forEach(x=>candidates.add(x));   // 免费档入候选
+      homepageAll.forEach(x=>candidates.add(x));    // 全量补全
+      log('🔍 步骤1 首页抓取完成：免费 '+homepageFree.length+' 个｜全量 '+homepageAll.length+' 个'+(homepageFree.length?('｜今日免费：'+homepageFree.join('、')):''), 'info');
+    } else log('🔍 步骤1 首页返回状态 '+r.status, 'warn');
+  }catch(err){ log('🔍 步骤1 首页抓取失败（可能需代理）：'+err.message, 'warn'); }
+  // 步骤2：GET /v1/models（即使 key 失效也试），全量入库
+  let listModels=[];
+  try{
+    for(const u of modelUrls(e.base)){
+      try{
+        const r=await compatFetch(proxyWrap(u), {method:'GET', headers:authHeaders(e.base, e.key, 'openai')});
+        if(r.ok){ const j=await r.json().catch(()=>null); if(j && Array.isArray(j.data)){ listModels=j.data.map(x=>x.id||x.name).filter(Boolean); break; } }
+      }catch(e3){}
+    }
+  }catch(e3){}
+  listModels.forEach(m=>candidates.add(m));
+  if(knownModels) knownModels.forEach(m=>candidates.add(m));
+  log('🔍 步骤2 累计候选 '+candidates.size+' 个', 'info');
+  // 步骤3 优先顺序：①首页明确标"免费"的 → ②用户填的模型 → ③名称像免费档的 → ④兜底全部
+  const freeSet=new Set(homepageFree);
+  let probe=[];
+  homepageFree.forEach(m=>{ if(!probe.includes(m)) probe.push(m); });
+  if(e.model && !probe.includes(e.model)) probe.push(e.model);
+  [...candidates].filter(m=>!freeSet.has(m) && m!==e.model && looksFree(m)).forEach(m=>{ if(!probe.includes(m)) probe.push(m); });
+  if(probe.length===0) probe=[...candidates].slice(0,40);
+  else if(probe.length>40) probe=probe.slice(0,40);
+  log('🔍 步骤3 优先列表：'+probe.join(' / '), 'info');
+  // 步骤3：每个候选 POST max_tokens:1 试探，读 x-ratelimit 剩余额度
+  const out=[]; const url=chatUrl(e.base,'openai');
+  for(const m of probe){
+    try{
+      const r=await compatFetch(proxyWrap(url), {method:'POST',
+        headers:{'Authorization':'Bearer '+e.key,'Content-Type':'application/json'},
+        body:JSON.stringify({model:m, messages:[{role:'user',content:'hi'}], max_tokens:1})}, 8000);
+      const remaining=r.headers.get('x-ratelimit-remaining-requests')||r.headers.get('x-ratelimit-remaining-tokens')||r.headers.get('x-quota-remaining')||'';
+      out.push({model:m, ok:r.ok, status:r.status, remaining, error:r.ok?null:((await r.text().catch(()=>'')||'').slice(0,80))});
+    }catch(err){ out.push({model:m, ok:false, status:0, error:'网络错误'}); }
+  }
+  try{ localStorage.setItem(cacheKey, JSON.stringify(out)); }catch(e4){}
+  results[id].freeProbe=out;
+  const okList=out.filter(x=>x.ok).map(x=>x.model+(x.remaining?`(${x.remaining})`:''));
+  results[id].message+=' ｜ 今日免费探测：'+(okList.length?okList.join('、'):'暂无可用')+'（共测 '+out.length+' 个）';
+  renderResults();
+  log('🔍 步骤3 完成：可用 '+(out.filter(x=>x.ok).length)+'/'+out.length, 'info');
+}
+
+/* ---------- 渲染结果卡 ---------- */
+function renderResults(){
+  const box=$('results');
+  const ids=Object.keys(results);
+  if(ids.length===0){ box.innerHTML='<div class="empty">尚无测试结果</div>'; return; }
+  let h='';
+  for(const id of ids){
+    const e=entries.find(x=>x.id===id); const r=results[id]; if(!e) continue;
+    const stClass = r.status==='ok'?'ok':(r.status==='warn'?'warn':'bad');
+    const stText = r.status==='ok'?'可用':(r.status==='warn'?'异常':'不可用');
+    let chips='';
+    if(r.models && r.models.length){
+      chips='<div class="chips">'+r.models.map(m=>{
+        const ms=r.modelStatus&&r.modelStatus[m];
+        const st=ms?`<span class="st">${ms.ok?'✅':(ms.ok===false?'❌':'')}</span>`:'';
+        const title=ms&&ms.text?` title="${esc(ms.text)}"`:'';
+        return `<span class="chip" data-e="${id}" data-m="${esc(m)}"${title}>${esc(m)}${st}</span>`;
+      }).join('')+'</div>';
+    }
+    h+=`<div class="card" id="card-${id}">
+      <h3><span class="tag ${stClass}">${stText}</span>
+        <code class="k">${esc(maskKey(e.key))}</code>
+        <span class="tag ${r.vendor||'unknown'}">${r.vendor||'?'}</span></h3>
+      <div class="msg">${esc(r.message)}</div>
+      <div class="meta">接口：${esc(e.base||'(未填)')}${r.latency!=null?(' ｜ 响应'+latencyWord(r.latency)+'（'+r.latency+'ms）'):''}</div>
+      ${chips}
+      ${freeProbeHtml(r)}
+    </div>`;
+  }
+  box.innerHTML=h;
+  box.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>testSingleModel(ch.dataset.e, ch.dataset.m, ch));
+}
+
+/* ---------- 单条测试 ---------- */
+async function testEntry(id, opts){
+  opts=opts||{};
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  if(!results[id]) results[id]={status:'warn', vendor:'', models:[], message:'测试中…', latency:null, modelStatus:{}};
+  else results[id].message='测试中…';
+  renderResults();
+  const t0=Date.now();
+  const isFT=isFreetoken(e.base);
+  log(`测试开始：${maskKey(e.key)} ｜ 接口=${e.base} ｜ 模型=${e.model||'(列首/未指定)'} ｜ 代理=${corsLabel()}${isFT?' ｜ 将自动免费探测':''}`, 'info');
+  let res={ok:false};
+  try{ res=await fetchModels(e.base, e.key); }
+  catch(err){ res={ok:false, error:'network'}; }
+  const latency=Date.now()-t0;
+  const vendor = res.ok ? res.vendor : 'openai';
+  const models = res.ok ? res.models : [];
+  const testModel = e.model || (res.ok ? res.models[0] : null);
+  if(res.ok) log(`模型列表成功：${maskKey(e.key)} ｜ 厂商=${res.vendor} ｜ 模型数=${res.models.length} ｜ 列表耗时 ${latency}ms`, 'ok');
+  if(models.length) populateModelDatalist(e.id, models);
+
+  let finalStatus, finalMessage;
+  if(opts.modelsOnly){
+    if(res.ok){ finalStatus='ok'; finalMessage=`密钥有效，服务正常（共 ${models.length} 个模型）`; }
+    else { finalStatus='bad'; finalMessage=describeError(res); log(`测试失败：${maskKey(e.key)} ｜ ${describeError(res)} ｜ 耗时 ${latency}ms`,'err'); }
+  } else if(testModel){
+    const cr=await chatTest(e.base, e.key, vendor, testModel);
+    if(cr.ok){
+      const authNote=cr.auth?`（鉴权方式：${cr.auth}）`:'';
+      finalMessage=(res.ok?`密钥有效，服务正常（共 ${models.length} 个模型）；`:`密钥有效（该接口无 /models 列表，已直接对话测试）；`)+`模型「${testModel}」对话测试通过，返回：「${cr.text}」${authNote}`;
+      finalStatus='ok';
+      log(`对话测试通过：${maskKey(e.key)} ｜ 模型=${testModel} ｜ 鉴权=${cr.auth} ｜ 返回：「${cr.text}」`,'ok');
+    } else {
+      finalMessage=res.ok?`密钥有效但对话测试未通过：${cr.error}`:`连接/认证失败：${cr.error}`;
+      finalStatus='bad';
+      log(`对话测试未通过：${maskKey(e.key)} ｜ 模型=${testModel} ｜ ${cr.error}`,'err');
+    }
+  } else {
+    if(!res.ok){ finalStatus='bad'; finalMessage=describeError(res); log(`测试失败：${maskKey(e.key)} ｜ ${describeError(res)} ｜ 耗时 ${latency}ms`,'err'); }
+    else { finalStatus='ok'; finalMessage=`密钥有效，服务正常（共 ${models.length} 个模型）`; }
+  }
+  results[id]={status:finalStatus, vendor, models, message:finalMessage, latency, modelStatus:results[id].modelStatus||{}};
+  renderResults();
+
+  // 仅 freetokenfaucet.com：自动做 1→2→3 免费探测，其他站点跳过
+  if(isFT) await runFreetokenProbe(id, models);
+}
+
+async function testSingleModel(id, model, chipEl){
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  const r=results[id]; const vendor=r.vendor||'openai';
+  chipEl.style.opacity='.6';
+  log(`单模型测试：${maskKey(e.key)} ｜ 模型=${model} ｜ 厂商=${vendor}`, 'info');
+  const cr=await chatTest(e.base, e.key, vendor, model);
+  if(!r.modelStatus) r.modelStatus={};
+  r.modelStatus[model]={ok:cr.ok, text:cr.ok?cr.text:cr.error};
+  log(cr.ok?`单模型通过：${model} ｜ 返回：「${cr.text}」`:`单模型失败：${model} ｜ ${cr.error}`, cr.ok?'ok':'err');
+  renderResults();
+}
+
+/* ---------- 并发调度 ---------- */
+async function runTests(selectedOnly, modelsOnly){
+  const ids=entries.filter(e=>!selectedOnly||e.selected).map(e=>e.id);
+  if(ids.length===0){ toast('请先勾选要测试的条目'); return; }
+  log(`开始测试：${ids.length} 条 ｜ 模式=${modelsOnly?'仅列表':'完整'} ｜ 代理=${corsLabel()}`, 'info');
+  let i=0;
+  async function worker(){ while(i<ids.length){ const id=ids[i++]; await testEntry(id,{modelsOnly}); } }
+  await Promise.all(Array.from({length:Math.min(4,ids.length)}, ()=>worker()));
+  toast('测试完成');
+  log('测试完成', 'ok');
+}
+
+/* ---------- 导出 ---------- */
+function buildExportData(){
+  const scope=$('expScope').value;
+  const full=$('expFullKey').checked;
+  const withModels=$('expModels').checked;
+  let list=entries.filter(e=>{
+    const r=results[e.id];
+    if(scope==='ok') return r && r.status==='ok';
+    return true;
+  });
+  return list.map(e=>{
+    const r=results[e.id]||{};
+    return {
+      base:e.base, vendor:r.vendor||'', key: full? e.key : maskKey(e.key),
+      models: withModels? (r.models||[]) : [],
+      status: r.status==='ok'?'可用':(r.status==='warn'?'异常':'不可用'),
+      note: r.message||''
+    };
+  });
+}
+function exportMarkdown(data){
+  let md='## 大模型 Key 可用性清单\n\n';
+  md+='| 接口地址 | 厂商 | API Key | 可用模型 | 状态 | 备注 |\n';
+  md+='|---|---|---|---|---|---|\n';
+  for(const d of data){
+    const models=d.models.length?d.models.join(', '):'—';
+    md+=`| ${d.base||'—'} | ${d.vendor||'—'} | ${d.key} | ${models} | ${d.status} | ${d.note.replace(/\|/g,'/')} |\n`;
+  }
+  return md;
+}
+function renderExportPreview(){
+  const data=buildExportData();
+  const box=$('exportPreview');
+  if(data.length===0){ box.innerHTML='<div class="empty">没有可导出的条目（先用「测试全部」）</div>'; return; }
+  let h='<table><thead><tr><th>接口地址</th><th>厂商</th><th>API Key</th><th>可用模型</th><th>状态</th><th>备注</th></tr></thead><tbody>';
+  for(const d of data){
+    const models=d.models.length?d.models.join(', '):'—';
+    const stc=d.status==='可用'?'ok':(d.status==='异常'?'warn':'bad');
+    h+=`<tr><td><code>${esc(d.base||'—')}</code></td><td>${esc(d.vendor||'—')}</td>
+      <td><code>${esc(d.key)}</code></td><td>${esc(models)}</td>
+      <td><span class="tag ${stc}">${esc(d.status)}</span></td><td>${esc(d.note)}</td></tr>`;
+  }
+  h+='</tbody></table>';
+  box.innerHTML=h;
+}
+function download(name, content, type){
+  const blob=new Blob([content],{type}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+/* ---------- 网页持续对话 ---------- */
+const chatSessions={}; // id -> {messages:[{role,content}], model}
+let activeChatId=null;
+
+// 核心：携带完整历史调用对话接口（与 chatTest 共用鉴权尝试逻辑，但返回完整文本、支持任意 messages）
+async function chatComplete(base, key, vendor, model, messages, maxTokens){
+  const url=chatUrl(base, vendor);
+  const isWeixin=(()=>{ try{ return new URL(base).hostname.toLowerCase().endsWith('weixin.qq.com'); }catch(e){ return false; } })();
+  // 微信等国产 OpenAI 兼容网关要求补 stream/temperature/user 三字段，否则 412
+  const body = vendor==='anthropic'
+    ? {model, max_tokens:maxTokens, messages}
+    : isWeixin
+      ? {model, messages, max_tokens:maxTokens, stream:false, temperature:0.7, user:'llm-tester'}
+      : {model, messages, max_tokens:maxTokens};
+  const bodyStr=JSON.stringify(body);
+  const variants=[];
+  if(isWeixin){
+    variants.push({name:'X-OPENAI-TOKEN', h:{'X-OPENAI-TOKEN':key,'Content-Type':'application/json'}});
+    variants.push({name:'X-APPID', h:{'X-APPID':key,'Content-Type':'application/json'}});
+    variants.push({name:'X-Api-Key', h:{'X-Api-Key':key,'Content-Type':'application/json'}});
+    variants.push({name:'Api-Key', h:{'Api-Key':key,'Content-Type':'application/json'}});
+    variants.push({name:'X-Org-Id+Bearer', h:{'Authorization':'Bearer '+key,'X-Org-Id':key,'Content-Type':'application/json'}});
+    variants.push({name:'X-User-Id+Bearer', h:{'Authorization':'Bearer '+key,'X-User-Id':key,'Content-Type':'application/json'}});
+    variants.push({name:'token-prefix', h:{'Authorization':'token '+key,'Content-Type':'application/json'}});
+    variants.push({name:'?key=query', h:{'Authorization':'Bearer '+key,'Content-Type':'application/json'}, urlSuffix:'?key='+encodeURIComponent(key)});
+    variants.push({name:'?token=query', h:{'Authorization':'Bearer '+key,'Content-Type':'application/json'}, urlSuffix:'?token='+encodeURIComponent(key)});
+  }
+  variants.push({name:'Bearer', h:{'Authorization':'Bearer '+key,'Content-Type':'application/json'}});
+  if(vendor==='anthropic') variants.push({name:'x-api-key', h:{'x-api-key':key,'anthropic-version':'2023-06-01','Content-Type':'application/json'}});
+  const tried=[];
+  for(const v of variants){
+    try{
+      const vUrl = v.urlSuffix ? (url+v.urlSuffix) : url;
+      const r=await compatFetch(proxyWrap(vUrl),{method:'POST',headers:v.h,body:bodyStr});
+      if(r.ok){
+        const j=await r.json().catch(()=>null);
+        let text='';
+        if(vendor==='anthropic') text=(j.content&&j.content[0]&&j.content[0].text)||'';
+        else text=(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
+        return {ok:true, text, auth:v.name, tried};
+      }
+      tried.push({name:v.name, error:humanStatus(r.status)});
+    }catch(e){ tried.push({name:v.name, error:'网络/跨域错误'}); }
+  }
+  const detail=tried.map(t=>`${t.name}→${t.error}`).join('；');
+  return {ok:false, error:detail, tried};
+}
+
+function openChat(id){
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  activeChatId=id;
+  const r=results[id];
+  const defModel=e.model || (r&&r.models&&r.models[0]) || '';
+  if(!chatSessions[id]) chatSessions[id]={messages:[], model:defModel};
+  $('chatModel').value=chatSessions[id].model||defModel||'';
+  $('chatModel').setAttribute('list','dl-'+id);
+  $('chatMeta').innerHTML=`接口：${esc(e.base||'(未填)')} ｜ Key：${esc(maskKey(e.key))} ｜ 代理=${corsLabel()}`;
+  renderChatBody(id);
+  $('chatOverlay').classList.add('show');
+  $('chatText').focus();
+}
+function renderChatBody(id){
+  const s=chatSessions[id]; const box=$('chatBody');
+  if(!s||s.messages.length===0){ box.innerHTML='<div class="empty">开始对话吧。下方输入消息，会携带完整历史发送给模型。</div>'; return; }
+  box.innerHTML=s.messages.map(m=>`<div class="chat-msg ${m.role}"><div class="chat-bubble">${esc(m.content)}</div></div>`).join('');
+  box.scrollTop=box.scrollHeight;
+}
+async function sendChat(){
+  const id=activeChatId; if(!id) return;
+  const s=chatSessions[id];
+  const e=entries.find(x=>x.id===id); if(!e) return;
+  const text=$('chatText').value.trim();
+  if(!text){ toast('请输入消息'); return; }
+  const model=$('chatModel').value.trim();
+  if(!model){ toast('请填写模型ID'); return; }
+  s.model=model;
+  s.messages.push({role:'user', content:text});
+  $('chatText').value='';
+  renderChatBody(id);
+  const box=$('chatBody');
+  const think=document.createElement('div'); think.className='chat-msg assistant';
+  think.innerHTML='<div class="chat-bubble thinking">思考中…</div>'; box.appendChild(think); box.scrollTop=box.scrollHeight;
+  const vendor=(results[id]&&results[id].vendor)||'openai';
+  const cr=await chatComplete(e.base, e.key, vendor, model, s.messages, 1024);
+  if(cr.ok){
+    s.messages.push({role:'assistant', content:cr.text});
+    renderChatBody(id);
+    log(`对话(持续)：${maskKey(e.key)} ｜ 模型=${model} ｜ 鉴权=${cr.auth} ｜ 用户：「${text}」`, 'ok');
+  } else {
+    think.querySelector('.chat-bubble').textContent='❌ 失败：'+cr.error;
+    think.querySelector('.chat-bubble').classList.remove('thinking');
+    log(`对话(持续)失败：${maskKey(e.key)} ｜ 模型=${model} ｜ ${cr.error}`, 'err');
+  }
+}
+
+/* ---------- 事件 ---------- */
+function doParse(){
+  const text=$('input').value;
+  entries=parseInput(text);
+  for(const k in results) delete results[k];
+  renderTable();
+  $('parseHint').textContent = entries.length
+    ? `已识别 ${entries.length} 组凭据，默认全部勾选。可修改后测试。`
+    : '未识别到 Key，请检查粘贴内容（需含 sk-/sk-ant-/AIza/tf_ 等格式密钥）。';
+  if(entries.length){
+    toast('解析完成：'+entries.length+' 组');
+    log('解析完成，共 '+entries.length+' 组凭据', 'info');
+    entries.forEach(e=>log(`· 接口=${e.base||'(未填)'} ｜ Key=${maskKey(e.key)} ｜ 模型=${e.model||'(待列表)'}`, 'info'));
+  } else {
+    log('解析失败：未识别到有效密钥', 'warn');
+  }
+}
+
+$('parseBtn').onclick=doParse;
+$('input').addEventListener('input', ()=>{ clearTimeout(window.__pt); window.__pt=setTimeout(doParse,500); });
+$('selAll').onclick=()=>{ entries.forEach(e=>e.selected=true); renderTable(); };
+$('selNone').onclick=()=>{ entries.forEach(e=>e.selected=false); renderTable(); };
+$('testAll').onclick=()=>runTests(false,false);
+$('testSel').onclick=()=>runTests(true,false);
+$('testList').onclick=()=>runTests(false,true);
+$('clearBtn').onclick=()=>{ entries=[]; for(const k in results) delete results[k]; $('input').value=''; renderTable(); $('results').innerHTML='<div class="empty">尚无测试结果</div>'; $('parseHint').textContent='粘贴后自动解析。'; };
+
+/* CORS 方案选择（四选一，单选） */
+document.querySelectorAll('input[name=corsMethod]').forEach(r=>r.onchange=()=>{
+  corsMethod=r.value;
+  if(corsMethod==='D' && !proxyDeploy) proxyDeploy='local';
+  if(corsMethod==='D' && proxyDeploy==='local') proxyBase='http://localhost:8787';
+  renderCorsDetail();
+  if(corsMethod==='D') checkProxy();
+  else { const st=$('corsStatus'); if(st){ st.textContent=''; st.className='proxyState'; } }
+  log('已选择 CORS 方案：'+corsMethod+'（'+corsLabel()+'）', 'info');
+});
+renderCorsDetail();
+setCorsCollapsed(corsCollapsed);    // 应用折叠状态
+$('corsHead').onclick=()=>setCorsCollapsed(!corsCollapsed);
+
+$('logCopy').onclick=()=>{
+  const txt=logLines.join('\n')||'（无日志）';
+  navigator.clipboard.writeText(txt).then(()=>toast('日志已复制')).catch(()=>{
+    const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); toast('日志已复制'); }catch(e){ toast('复制失败，请手动选择'); }
+    ta.remove();
+  });
+};
+$('logClear').onclick=()=>{ logLines.length=0; $('logBox').innerHTML='<div class="empty">暂无日志（解析或测试时自动记录）</div>'; };
+
+$('exportBtn').onclick=()=>{ renderExportPreview(); $('exportOverlay').classList.add('show'); };
+$('closeExport').onclick=()=>$('exportOverlay').classList.remove('show');
+$('expScope').onchange=renderExportPreview;
+$('expFullKey').onchange=renderExportPreview;
+$('expModels').onchange=renderExportPreview;
+$('copyMd').onclick=()=>{ navigator.clipboard.writeText(exportMarkdown(buildExportData())).then(()=>toast('已复制 Markdown')); };
+$('dlMd').onclick=()=>download('llm-keys.md', exportMarkdown(buildExportData()), 'text/markdown');
+$('dlJson').onclick=()=>download('llm-keys.json', JSON.stringify(buildExportData(),null,2), 'application/json');
+$('dlTxt').onclick=()=>{
+  const d=buildExportData();
+  const t=d.map(x=>`接口:${x.base}\n厂商:${x.vendor}\nKey:${x.key}\n模型:${x.models.join(', ')}\n状态:${x.status}\n备注:${x.note}\n${'-'.repeat(30)}`).join('\n');
+  download('llm-keys.txt', t, 'text/plain');
+};
+
+/* 主题切换 */
+function applyTheme(mode){
+  document.body.className = mode==='light'?'light':'dark';
+  $('themeBtn').textContent = mode==='light'?'☀️ 亮色':'🌙 暗色';
+  try{ localStorage.setItem('llmTesterTheme', mode); }catch(e){}
+}
+$('themeBtn').onclick=()=>applyTheme(document.body.className==='light'?'dark':'light');
+try{ const m=localStorage.getItem('llmTesterTheme'); if(m) applyTheme(m); }catch(e){}
+
+/* 对话面板事件 */
+$('chatClose').onclick=()=>$('chatOverlay').classList.remove('show');
+$('chatSend').onclick=sendChat;
+$('chatText').addEventListener('keydown', ev=>{
+  if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); sendChat(); }
+});
+
+renderTable();
+</script>
+</body>
+</html>
