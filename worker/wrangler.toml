@@ -1,0 +1,17 @@
+name = "keycheck"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# account_id 也可通过环境变量 CLOUDFLARE_ACCOUNT_ID 注入（见 deploy.mjs）
+account_id = "2c96f30d0801ff43714a00a936296753"
+zone_id = "1e2cd3fa6c805b5fa5ff7340c4f843b2"
+
+# 部署后 Worker 接管 KeyCheck.hhxx.eu.org 整个子域：
+#   /            返回静态页面
+#   /proxy?url=  反向代理（本工具的云端 CORS 代理）
+#   /health      探活
+routes = [
+  { pattern = "keycheck.hhxx.eu.org/*", zone_id = "1e2cd3fa6c805b5fa5ff7340c4f843b2" }
+]
+
+# 如需本地调试：wrangler dev --local （本地默认 http://localhost:8787，和工具默认地址一致）
