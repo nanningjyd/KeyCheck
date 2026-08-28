@@ -33,6 +33,13 @@
     border:1px solid var(--border); border-radius:8px; padding:12px;
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; resize:vertical;
   }
+  /* 顶部左右两栏：粘贴框 + 运行日志 */
+  .topRow { display:flex; gap:14px; align-items:stretch; margin:14px 0 0; }
+  .topRow > .col { flex:1 1 50%; min-width:0; display:flex; flex-direction:column; }
+  .topColLabel { font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:600; letter-spacing:.5px; }
+  .topColLabel .badge { display:inline-block; background:var(--accent); color:#fff; padding:1px 6px; border-radius:4px; font-size:10px; margin-left:6px; font-weight:500; vertical-align:1px; }
+  @media (max-width: 760px) { .topRow { flex-direction:column; } .topRow > .col { flex:1 1 auto; } }
+  .inputArea { flex:1; min-height:200px; max-height:360px; }
   .toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:14px 0; }
   .proxyToggle { display:inline-flex; align-items:center; gap:5px; font-size:13px; color:var(--text2); cursor:pointer; user-select:none; }
   .proxyToggle input { accent-color:var(--accent); }
@@ -94,13 +101,19 @@
   .card h3 { margin:0 0 6px; font-size:14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .card .msg { margin:4px 0; }
   .meta { color:var(--muted); font-size:12px; }
-  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; transition:max-height .25s ease; }
+  .chips.collapsed { max-height:78px; overflow:hidden; }
   .chip {
     background:var(--chip); border:1px solid var(--border); border-radius:16px;
     padding:3px 10px; font-size:12px; cursor:pointer; font-family:ui-monospace,monospace;
+    transition:border-color .15s, background .15s;
   }
-  .chip:hover { border-color:var(--accent); }
+  .chip:hover { border-color:var(--accent); background:var(--panel2); }
+  .chip.copied { animation:chipFlash 1s ease; }
+  @keyframes chipFlash { 0% { background:var(--ok); border-color:var(--ok); color:#fff; } 100% { background:var(--chip); border-color:var(--border); color:inherit; } }
   .chip .st { margin-left:6px; font-size:11px; }
+  .chipToggle { display:inline-block; margin-top:6px; font-size:12px; color:var(--accent); cursor:pointer; user-select:none; }
+  .chipToggle:hover { text-decoration:underline; }
   .empty { color:var(--muted); text-align:center; padding:30px; }
   /* freetoken 免费探测结果 */
   .freeProbe { margin-top:8px; border-top:1px dashed var(--border); padding-top:8px; }
@@ -166,7 +179,10 @@
 </header>
 
 <div class="wrap">
-  <textarea id="input" placeholder="在此粘贴任意组合的 接口地址 / API Key / 模型ID（支持多组，空行分隔）。
+  <div class="topRow">
+    <div class="col">
+      <div class="topColLabel">📋 粘贴框<span class="badge">粘贴即解析</span></div>
+      <textarea id="input" class="inputArea" placeholder="在此粘贴任意组合的 接口地址 / API Key / 模型ID（支持多组，空行分隔）。
 例如：
 https://api.openai.com/v1
 sk-xxxxxxx
@@ -180,6 +196,21 @@ https://my-proxy.com/v1
 sk-aaa
 sk-bbb
 sk-ccc"></textarea>
+    </div>
+    <div class="col">
+      <div class="topColLabel">📜 运行日志<span class="badge" id="logBadge">实时</span></div>
+      <div class="logPanel">
+        <div class="logHead">
+          <span>运行日志</span>
+          <span class="logBtns">
+            <button id="logClear">清空</button>
+            <button id="logCopy">复制日志</button>
+          </span>
+        </div>
+        <div class="logBox" id="logBox"><div class="empty">暂无日志（解析或测试时自动记录）</div></div>
+      </div>
+    </div>
+  </div>
   <div class="toolbar">
     <button class="primary" id="parseBtn">解析</button>
     <button id="selAll">全选</button>
@@ -210,17 +241,6 @@ sk-ccc"></textarea>
 
   <div id="entriesTable"></div>
   <div class="cards" id="results"><div class="empty">尚无测试结果</div></div>
-
-  <div class="logPanel">
-    <div class="logHead">
-      <span>运行日志</span>
-      <span class="logBtns">
-        <button id="logClear">清空</button>
-        <button id="logCopy">复制日志</button>
-      </span>
-    </div>
-    <div class="logBox" id="logBox"><div class="empty">暂无日志（解析或测试时自动记录）</div></div>
-  </div>
 </div>
 
 <!-- Export modal -->
@@ -770,12 +790,19 @@ function renderResults(){
     const stText = r.status==='ok'?'可用':(r.status==='warn'?'异常':'不可用');
     let chips='';
     if(r.models && r.models.length){
-      chips='<div class="chips">'+r.models.map(m=>{
+      // 超过 3 行（每行约 4-5 个 chip，即 > 12 个）则默认折叠
+      const total = r.models.length;
+      const needFold = total > 12;
+      const chipsClass = needFold ? 'chips collapsed' : 'chips';
+      const toggleHtml = needFold
+        ? `<span class="chipToggle" data-e="${id}">▾ 展开剩余 ${total - 12} 个模型（共 ${total} 个）</span>`
+        : (total > 5 ? `<span class="chipToggle" data-e="${id}" style="color:var(--muted)">共 ${total} 个模型</span>` : '');
+      chips='<div class="'+chipsClass+'" id="chips-'+id+'">'+r.models.map(m=>{
         const ms=r.modelStatus&&r.modelStatus[m];
         const st=ms?`<span class="st">${ms.ok?'✅':(ms.ok===false?'❌':'')}</span>`:'';
-        const title=ms&&ms.text?` title="${esc(ms.text)}"`:'';
+        const title=ms&&ms.text?` title="${esc(ms.text)} ｜ 点击：测试+复制+填入模型ID输入框"`:' title="点击：测试+复制+填入模型ID输入框"';
         return `<span class="chip" data-e="${id}" data-m="${esc(m)}"${title}>${esc(m)}${st}</span>`;
-      }).join('')+'</div>';
+      }).join('')+'</div>'+toggleHtml;
     }
     h+=`<div class="card" id="card-${id}">
       <h3><span class="tag ${stClass}">${stText}</span>
@@ -788,7 +815,54 @@ function renderResults(){
     </div>`;
   }
   box.innerHTML=h;
-  box.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>testSingleModel(ch.dataset.e, ch.dataset.m, ch));
+  // chip 点击：测试 + 复制 + 设置到对应行的模型ID输入框
+  box.querySelectorAll('.chip').forEach(ch=>{
+    ch.onclick=async ()=>{
+      const eid = ch.dataset.e, model = ch.dataset.m;
+      // 动作1：测试可用性（保留原行为）
+      testSingleModel(eid, model, ch);
+      // 动作2：复制模型ID到剪贴板
+      try{
+        if(navigator.clipboard && window.isSecureContext){
+          await navigator.clipboard.writeText(model);
+        } else {
+          // fallback：选中文本后 execCommand
+          const ta=document.createElement('textarea'); ta.value=model;
+          ta.style.position='fixed'; ta.style.opacity='0';
+          document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta);
+        }
+        ch.classList.add('copied');
+        setTimeout(()=>ch.classList.remove('copied'), 1000);
+        toast('已复制：'+model);
+      }catch(err){
+        log('复制失败：'+err.message, 'warn');
+      }
+      // 动作3：把模型ID填入对应行的模型ID输入框（覆盖原值）
+      const modelInp = document.querySelector('input[data-f="model"][data-id="'+eid+'"]');
+      if(modelInp){
+        modelInp.value = model;
+        modelInp.dispatchEvent(new Event('input', {bubbles:true}));
+      }
+    };
+  });
+  // 折叠/展开按钮
+  box.querySelectorAll('.chipToggle').forEach(t=>{
+    t.onclick=()=>{
+      const eid=t.dataset.e;
+      const chipsEl = document.getElementById('chips-'+eid);
+      if(!chipsEl) return;
+      const expanded = !chipsEl.classList.contains('collapsed');
+      if(expanded){
+        chipsEl.classList.add('collapsed');
+        const total = chipsEl.querySelectorAll('.chip').length;
+        t.textContent = '▾ 展开剩余 ' + Math.max(0, total - 12) + ' 个模型（共 '+total+' 个）';
+      } else {
+        chipsEl.classList.remove('collapsed');
+        t.textContent = '▴ 折叠（共 '+chipsEl.querySelectorAll('.chip').length+' 个）';
+      }
+    };
+  });
 }
 
 /* ---------- 单条测试 ---------- */
