@@ -156,6 +156,33 @@
   .chat-inline .chat-body::-webkit-scrollbar-track { background: transparent; }
   .chat-inline .chat-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   .chat-inline .chat-body::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  /* 每条消息的复制按钮 */
+  .chat-msg { position: relative; margin: 9px 0; display: flex; }
+  .chat-msg.user { justify-content: flex-end; }
+  .chat-msg.assistant { justify-content: flex-start; }
+  .chat-bubble {
+    max-width: 82%; padding: 9px 13px; border-radius: 13px;
+    white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.65;
+    position: relative;
+  }
+  .chat-msg.user .chat-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .chat-msg.assistant .chat-bubble { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .chat-bubble.thinking { color: var(--muted); font-style: italic; }
+  /* 气泡上的复制按钮 */
+  .chat-copy-btn {
+    position: absolute; top: 4px; right: 4px; opacity: 0;
+    width: 22px; height: 22px; border-radius: 4px;
+    background: rgba(0,0,0,.25); border: none; cursor: pointer;
+    color: inherit; font-size: 12px; line-height: 1; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity .15s, background .15s;
+  }
+  .chat-msg:hover .chat-copy-btn { opacity: 1; }
+  .chat-msg.user .chat-copy-btn { background: rgba(255,255,255,.25); }
+  .chat-copy-btn:hover { background: rgba(0,0,0,.45); }
+  .chat-msg.user .chat-copy-btn:hover { background: rgba(255,255,255,.45); }
+  .chat-copy-btn.copied { background: #4caf50; color: #fff; }
+  .chat-msg.user .chat-copy-btn.copied { background: #69f0ae; color: #005a2e; }
   /* 手滚上滚时浮出的「回到底部」按钮 */
   .scroll-bottom-btn {
     position: absolute; bottom: 110px; right: 16px; z-index: 3;
@@ -1206,7 +1233,7 @@ function renderChatBody(id, scrollIfAtBottom=true){
   if(!box) return;
   if(!s||s.messages.length===0){ box.innerHTML='<div class="empty">开始对话吧。下方输入消息，回车发送，Shift+Enter 换行。可点 <b>📎 上传文件</b> 附加图片/文档（图片会作为 image_url 发送）。</div>'; box.scrollTop=box.scrollHeight; return; }
   // content 可能是字符串或数组（携带文件）
-  box.innerHTML=s.messages.map(m=>{
+  box.innerHTML=s.messages.map((m, idx)=>{
     let inner='';
     const c=m.content;
     if(typeof c === 'string'){
@@ -1220,9 +1247,47 @@ function renderChatBody(id, scrollIfAtBottom=true){
         return '';
       }).filter(Boolean).join('<br>');
     }
-    return `<div class="chat-msg ${m.role}"><div class="chat-bubble">${inner||'<i>(空)</i>'}</div></div>`;
+    // 提取纯文本用于复制
+    const plainText = extractChatPlain(m.content);
+    return `<div class="chat-msg ${m.role}">
+      <div class="chat-bubble">
+        ${inner||'<i>(空)</i>'}
+        <button class="chat-copy-btn" data-idx="${idx}" data-role="${m.role}" title="复制这条消息">📋</button>
+      </div>
+    </div>`;
   }).join('');
+  // 绑定复制按钮事件
+  box.querySelectorAll('.chat-copy-btn').forEach(btn=>{
+    btn.onclick=()=>copyChatMsg(btn.dataset.idx, btn.dataset.role);
+  });
   if(scrollIfAtBottom) box.scrollTop=box.scrollHeight;
+}
+// 从 content（字符串或数组）中提取纯文本
+function extractChatPlain(content){
+  if(typeof content === 'string') return content;
+  if(Array.isArray(content)) return content.filter(b=>b.type==='text').map(b=>b.text).join('');
+  return '';
+}
+async function copyChatMsg(idx, role){
+  const s=chatSessions[activeChatId]; if(!s) return;
+  const msg=s.messages[idx]; if(!msg) return;
+  const text=extractChatPlain(msg.content)||'(含图片附件)';
+  try{
+    await navigator.clipboard.writeText(text);
+  }catch(e){
+    // fallback
+    const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); }catch(err){}
+    document.body.removeChild(ta);
+  }
+  // 视觉反馈
+  const btn=document.querySelector(`.chat-copy-btn[data-idx="${idx}"][data-role="${role}"]`);
+  if(btn){
+    btn.textContent='✓'; btn.classList.add('copied');
+    setTimeout(()=>{ btn.textContent='📋'; btn.classList.remove('copied'); }, 1200);
+  }
+  toast('已复制'+(role==='user'?'提问':'答复'));
 }
 
 async function sendChat(){
