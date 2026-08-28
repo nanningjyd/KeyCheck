@@ -1172,7 +1172,9 @@ function openChat(id){
   $('chatHost').appendChild(node);
 
   const cm = $('chatModel'), meta = $('chatMeta');
-  cm.value = chatSessions[id].model || defModel || '';
+  // 优先取当前行模型输入框的实时值（chip 点击后已更新），其次旧会话缓存，最后默认模型
+  const domModel = (document.querySelector('input[data-f="model"][data-id="'+id+'"]')||{}).value || '';
+  cm.value = domModel || (chatSessions[id]&&chatSessions[id].model) || defModel || '';
 
   meta.innerHTML=`接口：${esc(e.base||'(未填)')} ｜ Key：${esc(maskKey(e.key))} ｜ 厂商=${(r&&r.vendor)||'auto'} ｜ 代理=${corsLabel()}` +
     ` <span style="margin-left:8px;color:var(--muted);">↳ 此对话窗口会保留在本页面下方；点击其他"对话"按钮可切换凭据</span>`;
