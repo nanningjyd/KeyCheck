@@ -604,7 +604,8 @@ async function chatTest(base, key, vendor, model){
   for(const v of variants){
     try{
       const vUrl = v.urlSuffix ? (url+v.urlSuffix) : url;
-      const r=await compatFetch(proxyWrap(vUrl),{method:'POST',headers:v.h,body:bodyStr});
+      // 对话测试单独用 60s 超时（默认 15s 不够 HuggingFace reasoning 类模型慢响应）
+      const r=await compatFetch(proxyWrap(vUrl),{method:'POST',headers:v.h,body:bodyStr}, 60000);
       if(r.ok){
         const j=await r.json().catch(()=>null);
         let text='';
@@ -613,7 +614,7 @@ async function chatTest(base, key, vendor, model){
         return {ok:true, text:text.slice(0,100), auth:v.name, tried};
       }
       tried.push({name:v.name, status:r.status, error:humanStatus(r.status)});
-    }catch(e){ tried.push({name:v.name, status:0, error:'网络/跨域错误'}); }
+    }catch(e){ tried.push({name:v.name, status:0, error:e.name==='AbortError'?'响应超时（>60s，模型可能在思考或服务慢）':'网络/跨域错误'}); }
   }
   const detail=tried.map(t=>`${t.name}→${t.error}`).join('；');
   return {ok:false, error:detail, tried};
@@ -1020,7 +1021,7 @@ async function chatComplete(base, key, vendor, model, messages, maxTokens){
   for(const v of variants){
     try{
       const vUrl = v.urlSuffix ? (url+v.urlSuffix) : url;
-      const r=await compatFetch(proxyWrap(vUrl),{method:'POST',headers:v.h,body:bodyStr});
+      const r=await compatFetch(proxyWrap(vUrl),{method:'POST',headers:v.h,body:bodyStr}, 60000);
       if(r.ok){
         const j=await r.json().catch(()=>null);
         let text='';
@@ -1029,7 +1030,7 @@ async function chatComplete(base, key, vendor, model, messages, maxTokens){
         return {ok:true, text, auth:v.name, tried};
       }
       tried.push({name:v.name, error:humanStatus(r.status)});
-    }catch(e){ tried.push({name:v.name, error:'网络/跨域错误'}); }
+    }catch(e){ tried.push({name:v.name, error:e.name==='AbortError'?'响应超时（>60s，模型可能在思考或服务慢）':'网络/跨域错误'}); }
   }
   const detail=tried.map(t=>`${t.name}→${t.error}`).join('；');
   return {ok:false, error:detail, tried};
