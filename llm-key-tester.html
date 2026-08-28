@@ -144,12 +144,31 @@
   .modal table { font-size:12px; }
   .modal table th, .modal table td { padding:7px 9px; }
   /* 持续对话面板（内嵌在页面下方） */
-  .chat-inline {
-    margin: 14px 0 20px; padding: 14px; background:var(--panel); border:1px solid var(--border); border-radius:12px;
-    box-shadow: 0 6px 22px rgba(0,0,0,.25);
+  /* 对话框内嵌于页面下方：聊天内容区可滚动，不遮挡下方内容 */
+  .chat-inline { position: relative; }
+  .chat-inline .chat-body {
+    min-height: 200px; max-height: min(480px, 55vh);
+    overflow-y: auto; overflow-x: hidden;
+    scroll-behavior: smooth;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
   }
+  .chat-inline .chat-body::-webkit-scrollbar { width: 6px; }
+  .chat-inline .chat-body::-webkit-scrollbar-track { background: transparent; }
+  .chat-inline .chat-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .chat-inline .chat-body::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  /* 手滚上滚时浮出的「回到底部」按钮 */
+  .scroll-bottom-btn {
+    position: absolute; bottom: 110px; right: 16px; z-index: 3;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: none; cursor: pointer;
+    font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    opacity: 0; transform: translateY(8px); pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+  }
+  .scroll-bottom-btn.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .scroll-bottom-btn:hover { filter: brightness(1.12); }
   .chat-inline .chat-head { margin-bottom:10px; gap:10px; }
-  .chat-inline .chat-body { min-height:260px; max-height:480px; }
   .chat-inline .chat-meta2 { font-size:12px; color:var(--muted); margin-top:4px; word-break:break-all; }
   .chat-inline .chat-input { margin-top:10px; flex-wrap:wrap; align-items:flex-end; }
   .chat-inline .chat-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
@@ -284,6 +303,7 @@ sk-ccc"></textarea>
 <!-- 内嵌聊天面板模板（点击"对话"后由 openChat 注入到 chatHost 中） -->
 <template id="chatTpl">
   <div class="chat-inline" id="chatInline">
+    <button class="scroll-bottom-btn" id="scrollBottomBtn" title="滚到底部">↓</button>
     <div class="chat-head">
       <div>
         <strong>💬 网页持续对话</strong>
@@ -1134,6 +1154,25 @@ function openChat(id){
   renderFileChips();
   updateFileInfo();
 
+  // 滚动管理：用户手动上滚时显示「回到底部」按钮
+  const body = $('chatBody');
+  const scrollBtn = $('scrollBottomBtn');
+  let isAutoScroll = true; // 默认自动滚动到底部
+  if (body) {
+    body.addEventListener('scroll', () => {
+      const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
+      isAutoScroll = nearBottom;
+      if (scrollBtn) scrollBtn.classList.toggle('show', !nearBottom);
+    });
+  }
+  if (scrollBtn) {
+    scrollBtn.onclick = () => {
+      if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
+      isAutoScroll = true;
+      scrollBtn.classList.remove('show');
+    };
+  }
+
   // 事件绑定
   $('chatClose').onclick=()=>{
     $('chatHost').innerHTML='';
@@ -1162,10 +1201,10 @@ function openChat(id){
   $('chatStatus').textContent='已就绪';
 }
 
-function renderChatBody(id){
+function renderChatBody(id, scrollIfAtBottom=true){
   const s=chatSessions[id]; const box=$('chatBody');
   if(!box) return;
-  if(!s||s.messages.length===0){ box.innerHTML='<div class="empty">开始对话吧。下方输入消息，回车发送，Shift+Enter 换行。可点 <b>📎 上传文件</b> 附加图片/文档（图片会作为 image_url 发送）。</div>'; return; }
+  if(!s||s.messages.length===0){ box.innerHTML='<div class="empty">开始对话吧。下方输入消息，回车发送，Shift+Enter 换行。可点 <b>📎 上传文件</b> 附加图片/文档（图片会作为 image_url 发送）。</div>'; box.scrollTop=box.scrollHeight; return; }
   // content 可能是字符串或数组（携带文件）
   box.innerHTML=s.messages.map(m=>{
     let inner='';
@@ -1183,7 +1222,7 @@ function renderChatBody(id){
     }
     return `<div class="chat-msg ${m.role}"><div class="chat-bubble">${inner||'<i>(空)</i>'}</div></div>`;
   }).join('');
-  box.scrollTop=box.scrollHeight;
+  if(scrollIfAtBottom) box.scrollTop=box.scrollHeight;
 }
 
 async function sendChat(){
