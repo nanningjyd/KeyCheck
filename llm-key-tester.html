@@ -143,21 +143,31 @@
   .modal h2 { margin:0 0 12px; font-size:16px; }
   .modal table { font-size:12px; }
   .modal table th, .modal table td { padding:7px 9px; }
-  /* 持续对话面板 */
-  .chat-modal { max-width:780px; display:flex; flex-direction:column; max-height:90vh; }
-  .chat-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; gap:10px; }
-  .chat-head .meta { font-size:12px; color:var(--muted); margin-top:3px; word-break:break-all; }
-  .chat-body { flex:1; overflow:auto; min-height:220px; max-height:54vh; padding:8px; background:var(--bg); border:1px solid var(--border); border-radius:8px; }
-  .chat-msg { margin:9px 0; display:flex; }
-  .chat-msg.user { justify-content:flex-end; }
-  .chat-msg.assistant { justify-content:flex-start; }
-  .chat-bubble { max-width:82%; padding:9px 13px; border-radius:13px; white-space:pre-wrap; word-break:break-word; font-size:13px; line-height:1.65; }
-  .chat-msg.user .chat-bubble { background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
-  .chat-msg.assistant .chat-bubble { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-bottom-left-radius:4px; }
-  .chat-bubble.thinking { color:var(--muted); font-style:italic; }
-  .chat-input { display:flex; gap:8px; margin-top:10px; align-items:flex-end; }
-  .chat-input #chatModel { width:150px; flex:none; }
-  .chat-input textarea { flex:1; min-height:48px; max-height:140px; }
+  /* 持续对话面板（内嵌在页面下方） */
+  .chat-inline {
+    margin: 14px 0 20px; padding: 14px; background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    box-shadow: 0 6px 22px rgba(0,0,0,.25);
+  }
+  .chat-inline .chat-head { margin-bottom:10px; gap:10px; }
+  .chat-inline .chat-body { min-height:260px; max-height:480px; }
+  .chat-inline .chat-meta2 { font-size:12px; color:var(--muted); margin-top:4px; word-break:break-all; }
+  .chat-inline .chat-input { margin-top:10px; flex-wrap:wrap; align-items:flex-end; }
+  .chat-inline .chat-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+  .file-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; min-height:0; }
+  .file-chip {
+    display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:14px;
+    background:var(--panel2); border:1px solid var(--border); font-size:12px;
+  }
+  .file-chip img { width:18px; height:18px; object-fit:cover; border-radius:3px; }
+  .file-chip .x { cursor:pointer; color:var(--muted); }
+  .file-chip .x:hover { color:var(--bad); }
+  .chat-inline .chat-input #chatModel { width:160px; flex:none; }
+  .chat-inline .chat-input textarea { flex:1; min-height:48px; max-height:160px; }
+  .file-btn { display:inline-flex; gap:5px; align-items:center; padding:6px 12px; border:1px dashed var(--border); border-radius:8px; background:var(--panel2); color:var(--text); cursor:pointer; font-size:12px; }
+  .file-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .chat-msg .chat-bubble img { max-width:220px; max-height:220px; border-radius:8px; margin-top:4px; display:block; }
+  .chat-msg .chat-bubble .file-attached { display:block; margin-top:5px; padding:4px 8px; background:var(--bg); border:1px solid var(--border); border-radius:6px; font-size:12px; color:var(--muted); word-break:break-all; }
+  .chat-msg.user .chat-bubble .file-attached { background:rgba(255,255,255,.18); border-color:rgba(255,255,255,.25); color:#fff; }
   .chatBtn { padding:5px 10px; font-size:12px; background:var(--accent); color:#fff; border-color:var(--accent); }
   .chatBtn:hover { filter:brightness(1.08); }
   .export-opts { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
@@ -223,7 +233,13 @@ sk-ccc"></textarea>
   </div>
   <div class="hint" id="parseHint">粘贴后自动解析；支持 sk-/sk-ant-/AIza/tf_ 等格式密钥。表格内字段可手动修改后测试。默认全部勾选。</div>
 
-  <div class="corsPanel collapsed" id="corsPanel">
+  <div id="entriesTable"></div>
+  <div class="cards" id="results"><div class="empty">尚无测试结果</div></div>
+
+  <div id="chatHost"></div>
+
+  <!-- CORS 解决方案（已移至页面最底部，下方） -->
+  <div class="corsPanel collapsed" id="corsPanel" style="margin-top:18px;">
     <div class="corsHead" id="corsHead" title="点击展开/折叠">
       <span class="corsTitle">🌐 CORS 解决方案（四选一，单选）<span class="corsCur" id="corsCur"></span></span>
       <span class="corsChevron" id="corsChevron">▾</span>
@@ -238,9 +254,6 @@ sk-ccc"></textarea>
       <div class="corsDetail" id="corsDetail"></div>
     </div>
   </div>
-
-  <div id="entriesTable"></div>
-  <div class="cards" id="results"><div class="empty">尚无测试结果</div></div>
 </div>
 
 <!-- Export modal -->
@@ -268,24 +281,33 @@ sk-ccc"></textarea>
   </div>
 </div>
 
-<!-- 持续对话面板 -->
-<div class="overlay" id="chatOverlay">
-  <div class="modal chat-modal">
+<!-- 内嵌聊天面板模板（点击"对话"后由 openChat 注入到 chatHost 中） -->
+<template id="chatTpl">
+  <div class="chat-inline" id="chatInline">
     <div class="chat-head">
       <div>
-        <strong>🌐 网页持续对话</strong>
-        <div class="meta" id="chatMeta"></div>
+        <strong>💬 网页持续对话</strong>
+        <div class="chat-meta2" id="chatMeta"></div>
       </div>
-      <button id="chatClose">关闭</button>
+      <button id="chatClose">关闭 ⨯</button>
     </div>
     <div class="chat-body" id="chatBody"></div>
     <div class="chat-input">
-      <input id="chatModel" placeholder="模型ID">
+      <input id="chatModel" placeholder="模型ID" list="">
       <textarea id="chatText" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
       <button class="primary" id="chatSend">发送</button>
     </div>
+    <div class="chat-toolbar">
+      <label class="file-btn" id="chatFileLabel" title="可上传图片/PDF/文本文件，图片会被作为 image_url 发送">
+        📎 上传文件
+        <input type="file" id="chatFile" multiple style="display:none" accept="image/*,.pdf,.txt,.md,.csv,.json,.xml,.html,.js,.ts,.py,.java,.c,.cpp,.go,.rs,.sh,.yaml,.yml,.log,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
+      </label>
+      <span class="hint" id="chatFileInfo" style="margin:0;">未选择文件</span>
+      <span class="chat-meta2" id="chatStatus" style="margin-left:auto;"></span>
+    </div>
+    <div class="file-chips" id="fileChips"></div>
   </div>
-</div>
+</template>
 
 <div class="toast" id="toast"></div>
 
@@ -672,7 +694,9 @@ function renderTable(){
   box.querySelectorAll('input[data-f]').forEach(inp=>inp.oninput=ev=>{
     const e=entries.find(x=>x.id===ev.target.dataset.id); if(e) e[ev.target.dataset.f]=ev.target.value.trim();
   });
-  box.querySelectorAll('.chatBtn').forEach(b=>b.onclick=()=>openChat(b.dataset.id));
+  box.querySelectorAll('.chatBtn').forEach(b=>b.onclick=()=>{ openChat(b.dataset.id); /* 滚动到下方聊天面板 */
+    setTimeout(()=>{ const host=$('chatHost'); if(host) host.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
+  });
 }
 // 测试成功后把拉到的模型列表回填到该条目行下拉框（<datalist>）
 function populateModelDatalist(id, models){
@@ -1036,49 +1060,173 @@ async function chatComplete(base, key, vendor, model, messages, maxTokens){
   return {ok:false, error:detail, tried};
 }
 
+// 待发送的附件缓存：openChat 时创建，每次发送后清空
+let chatPendingFiles=[];
+
+// 文件读取 → {name,type,size,dataUrl}
+function readFileAsDataURL(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve({name:file.name, type:file.type||'application/octet-stream', size:file.size, dataUrl:r.result});
+    r.onerror=()=>reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+// 把文件名+大小渲染成 chip
+function renderFileChips(){
+  const box=$('fileChips'); if(!box) return;
+  if(!chatPendingFiles.length){ box.innerHTML=''; return; }
+  box.innerHTML = chatPendingFiles.map((f,i)=>{
+    const isImg = (f.type||'').startsWith('image/');
+    const thumb = isImg ? `<img src="${f.dataUrl}" alt="">` : `<span>📄</span>`;
+    const sz = f.size<1024 ? f.size+'B' : f.size<1048576 ? (f.size/1024).toFixed(1)+'KB' : (f.size/1048576).toFixed(2)+'MB';
+    return `<span class="file-chip" data-i="${i}">${thumb}<span>${esc(f.name)} <span style="color:var(--muted);">(${sz})</span></span><span class="x" title="移除">⨯</span></span>`;
+  }).join('');
+  box.querySelectorAll('.file-chip').forEach(ch=>{
+    const i=+ch.dataset.i;
+    ch.querySelector('.x').onclick=()=>{ chatPendingFiles.splice(i,1); renderFileChips(); updateFileInfo(); };
+  });
+  $('chatFileInfo').textContent = `已选 ${chatPendingFiles.length} 个文件`;
+}
+function updateFileInfo(){
+  $('chatFileInfo').textContent = chatPendingFiles.length ? `已选 ${chatPendingFiles.length} 个文件` : '未选择文件';
+}
+
+// 根据文件 mime 决定如何作为消息内容块（图片用 image_url，其他标记为附件文本块）
+function buildContentFromFiles(files, fallbackText){
+  const blocks=[];
+  if(fallbackText && fallbackText.trim()) blocks.push({type:'text', text:fallbackText});
+  for(const f of files){
+    if((f.type||'').startsWith('image/')){
+      blocks.push({type:'image_url', image_url:{url:f.dataUrl}});
+      blocks.push({type:'text', text:`(图片附件：${f.name})`});
+    } else {
+      // 非图片：作为"附件"标记，告知模型文件已附加并附上文件名/mime
+      blocks.push({type:'text', text:`[已附加文件：${f.name}（${f.type||'application/octet-stream'}，${f.size<1024?f.size+'B':(f.size/1024).toFixed(1)+'KB'}）——本前端无法直接上传到模型上下文；如需模型读取请在外部转写后粘到下方文本框]`});
+    }
+  }
+  return blocks;
+}
+
 function openChat(id){
   const e=entries.find(x=>x.id===id); if(!e) return;
   activeChatId=id;
   const r=results[id];
   const defModel=e.model || (r&&r.models&&r.models[0]) || '';
   if(!chatSessions[id]) chatSessions[id]={messages:[], model:defModel};
-  $('chatModel').value=chatSessions[id].model||defModel||'';
-  $('chatModel').setAttribute('list','dl-'+id);
-  $('chatMeta').innerHTML=`接口：${esc(e.base||'(未填)')} ｜ Key：${esc(maskKey(e.key))} ｜ 代理=${corsLabel()}`;
+
+  // 关闭任何已打开的聊天面板（同时只保留一个）
+  $('chatHost').innerHTML='';
+
+  // 注入内嵌面板到 chatHost
+  const tpl=$('chatTpl');
+  const node=tpl.content.firstElementChild.cloneNode(true);
+  $('chatHost').appendChild(node);
+
+  const cm = $('chatModel'), meta = $('chatMeta');
+  cm.value = chatSessions[id].model || defModel || '';
+
+  meta.innerHTML=`接口：${esc(e.base||'(未填)')} ｜ Key：${esc(maskKey(e.key))} ｜ 厂商=${(r&&r.vendor)||'auto'} ｜ 代理=${corsLabel()}` +
+    ` <span style="margin-left:8px;color:var(--muted);">↳ 此对话窗口会保留在本页面下方；点击其他"对话"按钮可切换凭据</span>`;
+
+  chatPendingFiles=[];
+  renderFileChips();
+  updateFileInfo();
+
+  // 事件绑定
+  $('chatClose').onclick=()=>{
+    $('chatHost').innerHTML='';
+    activeChatId=null;
+  };
+  $('chatSend').onclick=sendChat;
+  $('chatText').onkeydown=(ev)=>{
+    if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); sendChat(); }
+  };
+  $('chatFile').onchange=async (ev)=>{
+    const arr=Array.from(ev.target.files||[]);
+    // 限制总大小 ≤ 10MB，避免巨大文件导致请求超时
+    const MAX=10*1024*1024;
+    for(const f of arr){
+      if(f.size>MAX){ toast(`已跳过 ${f.name}（大于 10MB）`); continue; }
+      try{ const d=await readFileAsDataURL(f); chatPendingFiles.push(d); }
+      catch(err){ toast(`读取失败：${f.name}`); }
+    }
+    renderFileChips(); updateFileInfo();
+    ev.target.value=''; // 允许重复选相同文件
+  };
+
   renderChatBody(id);
-  $('chatOverlay').classList.add('show');
+  cm.oninput=()=>{ chatSessions[id].model=cm.value.trim(); };
   $('chatText').focus();
+  $('chatStatus').textContent='已就绪';
 }
+
 function renderChatBody(id){
   const s=chatSessions[id]; const box=$('chatBody');
-  if(!s||s.messages.length===0){ box.innerHTML='<div class="empty">开始对话吧。下方输入消息，会携带完整历史发送给模型。</div>'; return; }
-  box.innerHTML=s.messages.map(m=>`<div class="chat-msg ${m.role}"><div class="chat-bubble">${esc(m.content)}</div></div>`).join('');
+  if(!box) return;
+  if(!s||s.messages.length===0){ box.innerHTML='<div class="empty">开始对话吧。下方输入消息，回车发送，Shift+Enter 换行。可点 <b>📎 上传文件</b> 附加图片/文档（图片会作为 image_url 发送）。</div>'; return; }
+  // content 可能是字符串或数组（携带文件）
+  box.innerHTML=s.messages.map(m=>{
+    let inner='';
+    const c=m.content;
+    if(typeof c === 'string'){
+      inner = esc(c);
+    } else if(Array.isArray(c)){
+      inner = c.map(b=>{
+        if(b.type==='text') return esc(b.text||'');
+        if(b.type==='image_url' && b.image_url && b.image_url.url){
+          return `<img src="${esc(b.image_url.url)}" alt="image">`;
+        }
+        return '';
+      }).filter(Boolean).join('<br>');
+    }
+    return `<div class="chat-msg ${m.role}"><div class="chat-bubble">${inner||'<i>(空)</i>'}</div></div>`;
+  }).join('');
   box.scrollTop=box.scrollHeight;
 }
+
 async function sendChat(){
   const id=activeChatId; if(!id) return;
   const s=chatSessions[id];
   const e=entries.find(x=>x.id===id); if(!e) return;
-  const text=$('chatText').value.trim();
-  if(!text){ toast('请输入消息'); return; }
-  const model=$('chatModel').value.trim();
+  const text=($('chatText').value||'').trim();
+  const files = chatPendingFiles.slice();
+  if(!text && !files.length){ toast('请输入消息或选择文件'); return; }
+  const model=($('chatModel').value||'').trim();
   if(!model){ toast('请填写模型ID'); return; }
   s.model=model;
-  s.messages.push({role:'user', content:text});
+
+  // 构造 content：字符串或数组
+  let content;
+  if(files.length){
+    content = buildContentFromFiles(files, text);
+  } else {
+    content = text;
+  }
+  s.messages.push({role:'user', content});
   $('chatText').value='';
+  chatPendingFiles=[]; renderFileChips(); updateFileInfo();
   renderChatBody(id);
+
   const box=$('chatBody');
   const think=document.createElement('div'); think.className='chat-msg assistant';
   think.innerHTML='<div class="chat-bubble thinking">思考中…</div>'; box.appendChild(think); box.scrollTop=box.scrollHeight;
+  $('chatStatus').textContent='模型思考中…';
+  const startTs=Date.now();
   const vendor=(results[id]&&results[id].vendor)||'openai';
   const cr=await chatComplete(e.base, e.key, vendor, model, s.messages, 1024);
+  const ms=Date.now()-startTs;
   if(cr.ok){
     s.messages.push({role:'assistant', content:cr.text});
     renderChatBody(id);
-    log(`对话(持续)：${maskKey(e.key)} ｜ 模型=${model} ｜ 鉴权=${cr.auth} ｜ 用户：「${text}」`, 'ok');
+    $('chatStatus').textContent=`完成 · ${ms}ms · 鉴权=${cr.auth}`;
+    log(`对话(持续)：${maskKey(e.key)} ｜ 模型=${model} ｜ 鉴权=${cr.auth} ｜ 用户：「${text||'(含附件)'}」`, 'ok');
   } else {
     think.querySelector('.chat-bubble').textContent='❌ 失败：'+cr.error;
     think.querySelector('.chat-bubble').classList.remove('thinking');
+    renderChatBody(id);
+    $('chatStatus').textContent=`失败 · ${ms}ms`;
     log(`对话(持续)失败：${maskKey(e.key)} ｜ 模型=${model} ｜ ${cr.error}`, 'err');
   }
 }
@@ -1157,13 +1305,7 @@ function applyTheme(mode){
 $('themeBtn').onclick=()=>applyTheme(document.body.className==='light'?'dark':'light');
 try{ const m=localStorage.getItem('llmTesterTheme'); if(m) applyTheme(m); }catch(e){}
 
-/* 对话面板事件 */
-$('chatClose').onclick=()=>$('chatOverlay').classList.remove('show');
-$('chatSend').onclick=sendChat;
-$('chatText').addEventListener('keydown', ev=>{
-  if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); sendChat(); }
-});
-
+/* 对话面板事件已移至 openChat 内（每次面板创建时绑定） */
 renderTable();
 </script>
 </body>
